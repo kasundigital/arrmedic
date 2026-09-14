@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
 import os
 import secrets
+import shutil
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -26,9 +28,25 @@ DB_PATH = CONFIG_DIR / "arrmedic.db"
 KEY_PATH = CONFIG_DIR / "secret.key"
 SESSION_COOKIE = "arrmedic_session"
 SESSION_DAYS = 30
-APP_VERSION = "0.4.0"
+APP_VERSION = "0.5.0"
 
-app = FastAPI(title="ArrMedic", version=APP_VERSION, description="Open-source diagnostics and health monitoring for the *Arr media stack.")
+# Sonarr/Radarr/Whisparr normally use v3. The other Servarr apps commonly use
+# v1. We retain a fallback so older/newer installations still have a chance to
+# connect without forcing users to know the API generation.
+API_VERSION_ORDER = {
+    "sonarr": ("v3", "v1"),
+    "radarr": ("v3", "v1"),
+    "whisparr": ("v3", "v1"),
+    "prowlarr": ("v1", "v3"),
+    "lidarr": ("v1", "v3"),
+    "readarr": ("v1", "v3"),
+}
+
+app = FastAPI(
+    title="ArrMedic",
+    version=APP_VERSION,
+    description="Open-source diagnostics and health monitoring for the *Arr media stack.",
+)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
@@ -53,30 +71,39 @@ def db() -> sqlite3.Connection:
 
 def init_db() -> None:
     with db() as conn:
-        conn.executescript("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY CHECK (id = 1),
-            username TEXT NOT NULL UNIQUE,
-            password_hash TEXT NOT NULL,
-            created_at TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS sessions (
-            token_hash TEXT PRIMARY KEY,
-            user_id INTEGER NOT NULL,
-            expires_at TEXT NOT NULL,
-            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-        );
-        CREATE TABLE IF NOT EXISTS instances (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            kind TEXT NOT NULL,
-            url TEXT NOT NULL,
-            api_key_enc TEXT NOT NULL,
-            version TEXT,
-            os_name TEXT,
-            created_at TEXT NOT NULL
-        );
-        """)
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                username TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS sessions (
+                token_hash TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                expires_at TEXT NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS instances (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                url TEXT NOT NULL,
+                api_key_enc TEXT NOT NULL,
+                version TEXT,
+                os_name TEXT,
+                api_version TEXT,
+                last_checked TEXT,
+                created_at TEXT NOT NULL
+            );
+            """
+        )
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(instances)")}
+        if "api_version" not in columns:
+            conn.execute("ALTER TABLE instances ADD COLUMN api_version TEXT")
+        if "last_checked" not in columns:
+            conn.execute("ALTER TABLE instances ADD COLUMN last_checked TEXT")
 
 
 def cipher() -> Fernet:
@@ -112,8 +139,19 @@ def issue_session(response: Response, user_id: int) -> None:
     expires = datetime.now(timezone.utc) + timedelta(days=SESSION_DAYS)
     with db() as conn:
         conn.execute("DELETE FROM sessions WHERE expires_at < ?", (datetime.now(timezone.utc).isoformat(),))
-        conn.execute("INSERT INTO sessions(token_hash, user_id, expires_at) VALUES (?, ?, ?)", (token_hash, user_id, expires.isoformat()))
-    response.set_cookie(SESSION_COOKIE, token, max_age=SESSION_DAYS * 86400, httponly=True, samesite="strict", secure=False, path="/")
+        conn.execute(
+            "INSERT INTO sessions(token_hash, user_id, expires_at) VALUES (?, ?, ?)",
+            (token_hash, user_id, expires.isoformat()),
+        )
+    response.set_cookie(
+        SESSION_COOKIE,
+        token,
+        max_age=SESSION_DAYS * 86400,
+        httponly=True,
+        samesite="strict",
+        secure=False,
+        path="/",
+    )
 
 
 def require_user(session: str | None) -> sqlite3.Row:
@@ -122,11 +160,14 @@ def require_user(session: str | None) -> sqlite3.Row:
     token_hash = hashlib.sha256(session.encode()).hexdigest()
     now = datetime.now(timezone.utc).isoformat()
     with db() as conn:
-        row = conn.execute("""
-        SELECT users.* FROM sessions
-        JOIN users ON users.id = sessions.user_id
-        WHERE sessions.token_hash = ? AND sessions.expires_at > ?
-        """, (token_hash, now)).fetchone()
+        row = conn.execute(
+            """
+            SELECT users.* FROM sessions
+            JOIN users ON users.id = sessions.user_id
+            WHERE sessions.token_hash = ? AND sessions.expires_at > ?
+            """,
+            (token_hash, now),
+        ).fetchone()
     if not row:
         raise HTTPException(status_code=401, detail="Session expired")
     return row
@@ -188,19 +229,79 @@ class InstanceUpdateRequest(BaseModel):
         return value
 
 
-async def probe_instance(payload: InstanceRequest) -> dict:
+def instance_payload(row: sqlite3.Row) -> InstanceRequest:
+    try:
+        api_key = cipher().decrypt(row["api_key_enc"].encode()).decode()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Unable to decrypt the saved API key") from exc
+    return InstanceRequest(name=row["name"], kind=row["kind"], url=row["url"], api_key=api_key)
+
+
+def get_instance(instance_id: int) -> sqlite3.Row:
+    with db() as conn:
+        row = conn.execute("SELECT * FROM instances WHERE id = ?", (instance_id,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Service not found")
+    return row
+
+
+def api_versions(kind: str, preferred: str | None = None) -> list[str]:
+    ordered = list(API_VERSION_ORDER.get(kind, ("v3", "v1")))
+    if preferred and preferred in ordered:
+        ordered.remove(preferred)
+        ordered.insert(0, preferred)
+    return ordered
+
+
+async def arr_get(
+    payload: InstanceRequest,
+    endpoint: str,
+    *,
+    preferred_version: str | None = None,
+    params: dict | None = None,
+    allow_missing: bool = False,
+) -> tuple[object | None, str | None]:
     base_url = str(payload.url).rstrip("/")
     headers = {"X-Api-Key": payload.api_key}
-    try:
-        async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
-            response = await client.get(f"{base_url}/api/v3/system/status", headers=headers)
-            response.raise_for_status()
-            data = response.json()
-    except httpx.HTTPStatusError as exc:
-        raise HTTPException(status_code=400, detail=f"{payload.kind.title()} returned HTTP {exc.response.status_code}") from exc
-    except (httpx.RequestError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail=f"Unable to connect to {payload.kind.title()}: {exc}") from exc
+    last_error: Exception | None = None
+    versions = api_versions(payload.kind, preferred_version)
 
+    async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
+        for index, version in enumerate(versions):
+            url = f"{base_url}/api/{version}/{endpoint.lstrip('/')}"
+            try:
+                response = await client.get(url, headers=headers, params=params)
+                if response.status_code == 404 and index < len(versions) - 1:
+                    continue
+                if response.status_code == 404 and allow_missing:
+                    return None, version
+                response.raise_for_status()
+                if not response.content:
+                    return {}, version
+                return response.json(), version
+            except httpx.HTTPStatusError as exc:
+                last_error = exc
+                if exc.response.status_code == 404 and allow_missing:
+                    return None, version
+                if exc.response.status_code == 401:
+                    raise HTTPException(status_code=400, detail=f"{payload.kind.title()} rejected the API key") from exc
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{payload.kind.title()} returned HTTP {exc.response.status_code} for {endpoint}",
+                ) from exc
+            except (httpx.RequestError, ValueError) as exc:
+                last_error = exc
+                break
+
+    if allow_missing and isinstance(last_error, httpx.HTTPStatusError) and last_error.response.status_code == 404:
+        return None, None
+    raise HTTPException(status_code=400, detail=f"Unable to connect to {payload.kind.title()}: {last_error}")
+
+
+async def probe_instance(payload: InstanceRequest, preferred_version: str | None = None) -> dict:
+    data, api_version = await arr_get(payload, "system/status", preferred_version=preferred_version)
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail=f"Unexpected response from {payload.kind.title()}")
     return {
         "ok": True,
         "kind": payload.kind,
@@ -208,7 +309,304 @@ async def probe_instance(payload: InstanceRequest) -> dict:
         "version": data.get("version", "unknown"),
         "osName": data.get("osName", "unknown"),
         "runtimeVersion": data.get("runtimeVersion", "unknown"),
+        "apiVersion": api_version,
         "checkedAt": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def check(code: str, title: str, status: str, message: str, details: object | None = None) -> dict:
+    return {"code": code, "title": title, "status": status, "message": message, "details": details}
+
+
+def score_checks(checks: list[dict]) -> int:
+    score = 100
+    for item in checks:
+        if item.get("status") == "fail":
+            score -= 20
+        elif item.get("status") == "warn":
+            score -= 7
+    return max(0, min(100, score))
+
+
+def local_path_info(path_value: str) -> dict:
+    path = Path(path_value)
+    result = {"path": path_value, "visible": False, "readable": False, "writable": False}
+    try:
+        if not path.exists():
+            return result
+        stat_result = path.stat()
+        usage = shutil.disk_usage(path)
+        result.update(
+            {
+                "visible": True,
+                "readable": os.access(path, os.R_OK),
+                "writable": os.access(path, os.W_OK),
+                "device": stat_result.st_dev,
+                "freeBytes": usage.free,
+                "totalBytes": usage.total,
+                "freePercent": round((usage.free / usage.total) * 100, 1) if usage.total else None,
+            }
+        )
+    except OSError as exc:
+        result["error"] = str(exc)
+    return result
+
+
+def queue_records(data: object | None) -> list[dict]:
+    if isinstance(data, dict):
+        records = data.get("records", [])
+        return records if isinstance(records, list) else []
+    return data if isinstance(data, list) else []
+
+
+def health_records(data: object | None) -> list[dict]:
+    return data if isinstance(data, list) else []
+
+
+def summarize_queue_issue(item: dict) -> str | None:
+    state = str(item.get("trackedDownloadState") or item.get("status") or "").lower()
+    error = item.get("errorMessage")
+    if error:
+        return str(error)
+    messages = item.get("statusMessages")
+    if isinstance(messages, list):
+        texts: list[str] = []
+        for group in messages:
+            if isinstance(group, dict):
+                for message in group.get("messages", []) or []:
+                    texts.append(str(message))
+        if texts:
+            return "; ".join(texts[:3])
+    if any(token in state for token in ("blocked", "failed", "warning", "error")):
+        return state
+    return None
+
+
+async def build_instance_diagnostics(row: sqlite3.Row) -> dict:
+    payload = instance_payload(row)
+    checks: list[dict] = []
+    preferred = row["api_version"] if "api_version" in row.keys() else None
+
+    try:
+        status = await probe_instance(payload, preferred)
+        api_version = status.get("apiVersion")
+        checks.append(check("connection", "Connection", "pass", f"Connected to {status['appName']} {status['version']}"))
+    except HTTPException as exc:
+        checks.append(check("connection", "Connection", "fail", str(exc.detail)))
+        return {
+            "instanceId": row["id"],
+            "name": row["name"],
+            "kind": row["kind"],
+            "url": row["url"],
+            "score": score_checks(checks),
+            "status": "offline",
+            "checks": checks,
+            "doctors": {
+                "path": {"status": "info", "message": "Path checks require a working API connection."},
+                "permission": {"status": "info", "message": "Permission checks require a working API connection."},
+                "hardlink": {"status": "info", "message": "Hardlink checks require a working API connection."},
+                "queue": {"status": "info", "message": "Queue checks require a working API connection."},
+            },
+            "rootFolders": [],
+            "queue": [],
+            "downloadClients": [],
+            "remotePathMappings": [],
+            "health": [],
+            "checkedAt": datetime.now(timezone.utc).isoformat(),
+        }
+
+    # Run the independent API checks concurrently. Unsupported endpoints are
+    # represented as None and do not count as failures.
+    async def optional(endpoint: str, params: dict | None = None):
+        try:
+            data, _ = await arr_get(
+                payload,
+                endpoint,
+                preferred_version=api_version,
+                params=params,
+                allow_missing=True,
+            )
+            return data
+        except HTTPException:
+            return None
+
+    health_data, roots_data, queue_data, clients_data, mappings_data, indexers_data = await asyncio.gather(
+        optional("health"),
+        optional("rootfolder"),
+        optional("queue", {"page": 1, "pageSize": 50}),
+        optional("downloadclient"),
+        optional("remotepathmapping"),
+        optional("indexer"),
+    )
+
+    health_items = health_records(health_data)
+    if health_data is not None:
+        if not health_items:
+            checks.append(check("app_health", "Application health", "pass", "No health warnings reported by the service."))
+        else:
+            serious = [h for h in health_items if str(h.get("type", "")).lower() == "error"]
+            level = "fail" if serious else "warn"
+            checks.append(
+                check(
+                    "app_health",
+                    "Application health",
+                    level,
+                    f"{len(health_items)} health warning(s) reported.",
+                    health_items[:10],
+                )
+            )
+
+    roots = roots_data if isinstance(roots_data, list) else []
+    root_details: list[dict] = []
+    for root in roots:
+        path_value = str(root.get("path") or "")
+        local = local_path_info(path_value) if path_value else {"path": path_value, "visible": False}
+        root_details.append(
+            {
+                "id": root.get("id"),
+                "path": path_value,
+                "freeSpace": root.get("freeSpace"),
+                "unmappedFolders": root.get("unmappedFolders"),
+                "local": local,
+            }
+        )
+
+    if roots_data is not None:
+        low_space = []
+        for root in root_details:
+            free = root.get("freeSpace")
+            if isinstance(free, (int, float)) and free < 10 * 1024**3:
+                low_space.append(root["path"])
+        if low_space:
+            checks.append(check("storage", "Storage", "warn", f"Low free space on {len(low_space)} root folder(s).", low_space))
+        elif roots:
+            checks.append(check("storage", "Storage", "pass", f"{len(roots)} root folder(s) reported."))
+
+    queue = queue_records(queue_data)
+    queue_issues = []
+    for item in queue:
+        issue = summarize_queue_issue(item)
+        if issue:
+            queue_issues.append(
+                {
+                    "title": item.get("title") or item.get("downloadId") or "Queue item",
+                    "status": item.get("status"),
+                    "trackedDownloadState": item.get("trackedDownloadState"),
+                    "message": issue,
+                    "outputPath": item.get("outputPath"),
+                }
+            )
+    if queue_data is not None:
+        if queue_issues:
+            checks.append(check("queue", "Queue", "warn", f"{len(queue_issues)} queue item(s) need attention.", queue_issues[:15]))
+        else:
+            checks.append(check("queue", "Queue", "pass", f"Queue checked ({len(queue)} item(s))."))
+
+    clients = clients_data if isinstance(clients_data, list) else []
+    if clients_data is not None:
+        enabled_clients = [client for client in clients if client.get("enable", True)]
+        if not enabled_clients:
+            checks.append(check("download_clients", "Download clients", "warn", "No enabled download client was found."))
+        else:
+            checks.append(check("download_clients", "Download clients", "pass", f"{len(enabled_clients)} enabled download client(s)."))
+
+    mappings = mappings_data if isinstance(mappings_data, list) else []
+    indexers = indexers_data if isinstance(indexers_data, list) else []
+    if row["kind"] == "prowlarr" and indexers_data is not None:
+        enabled_indexers = [indexer for indexer in indexers if indexer.get("enable", True)]
+        if not enabled_indexers:
+            checks.append(check("indexers", "Indexers", "warn", "No enabled Prowlarr indexer was found."))
+        else:
+            checks.append(check("indexers", "Indexers", "pass", f"{len(enabled_indexers)} enabled indexer(s)."))
+
+    visible_roots = [root for root in root_details if root.get("local", {}).get("visible")]
+    if roots and not visible_roots:
+        path_doctor = {
+            "status": "info",
+            "message": "API paths were found, but they are not mounted inside ArrMedic. Mount the same media paths into ArrMedic to unlock filesystem checks.",
+        }
+    elif visible_roots:
+        path_doctor = {
+            "status": "pass",
+            "message": f"{len(visible_roots)} root path(s) are visible inside the ArrMedic container.",
+        }
+    else:
+        path_doctor = {"status": "info", "message": "This service does not expose root folders through the API."}
+
+    unreadable = [root["path"] for root in visible_roots if not root.get("local", {}).get("readable")]
+    if unreadable:
+        permission_doctor = {
+            "status": "warn",
+            "message": f"ArrMedic cannot read {len(unreadable)} visible root path(s). This checks ArrMedic access, not the service container's UID/GID.",
+            "paths": unreadable,
+        }
+    elif visible_roots:
+        permission_doctor = {
+            "status": "pass",
+            "message": "All visible root paths are readable by ArrMedic.",
+        }
+    else:
+        permission_doctor = {
+            "status": "info",
+            "message": "Mount media paths into ArrMedic to inspect container-level path visibility and read access.",
+        }
+
+    devices = {root.get("local", {}).get("device") for root in visible_roots if root.get("local", {}).get("device") is not None}
+    if len(devices) > 1:
+        hardlink_doctor = {
+            "status": "warn",
+            "message": "Visible root paths span multiple filesystems. Hardlinks cannot cross filesystem/device boundaries.",
+            "deviceCount": len(devices),
+        }
+    elif visible_roots:
+        hardlink_doctor = {
+            "status": "pass",
+            "message": "Visible root paths are on one filesystem. This is compatible with hardlinks, although ArrMedic has not created a test link.",
+        }
+    else:
+        hardlink_doctor = {
+            "status": "info",
+            "message": "Mount media/download paths into ArrMedic before evaluating hardlink filesystem boundaries.",
+        }
+
+    if queue_data is None:
+        queue_doctor = {"status": "info", "message": "Queue endpoint is not available for this service."}
+    elif queue_issues:
+        queue_doctor = {"status": "warn", "message": f"{len(queue_issues)} queue/import issue(s) found.", "issues": queue_issues[:15]}
+    else:
+        queue_doctor = {"status": "pass", "message": f"No blocked imports detected in {len(queue)} queue item(s)."}
+
+    checked_at = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        conn.execute(
+            "UPDATE instances SET version = ?, os_name = ?, api_version = ?, last_checked = ? WHERE id = ?",
+            (status["version"], status["osName"], api_version, checked_at, row["id"]),
+        )
+
+    return {
+        "instanceId": row["id"],
+        "name": row["name"],
+        "kind": row["kind"],
+        "url": row["url"],
+        "version": status["version"],
+        "apiVersion": api_version,
+        "score": score_checks(checks),
+        "status": "online",
+        "checks": checks,
+        "doctors": {
+            "path": path_doctor,
+            "permission": permission_doctor,
+            "hardlink": hardlink_doctor,
+            "queue": queue_doctor,
+        },
+        "rootFolders": root_details,
+        "queue": queue,
+        "queueIssues": queue_issues,
+        "downloadClients": clients,
+        "remotePathMappings": mappings,
+        "indexers": indexers,
+        "health": health_items,
+        "checkedAt": checked_at,
     }
 
 
@@ -217,7 +615,10 @@ init_db()
 
 @app.get("/")
 async def dashboard() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"})
+    return FileResponse(
+        STATIC_DIR / "index.html",
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
+    )
 
 
 @app.get("/api/health")
@@ -248,7 +649,10 @@ async def create_admin(payload: SetupRequest, response: Response) -> dict:
     with db() as conn:
         if conn.execute("SELECT 1 FROM users LIMIT 1").fetchone():
             raise HTTPException(status_code=409, detail="ArrMedic is already configured")
-        conn.execute("INSERT INTO users(id, username, password_hash, created_at) VALUES (1, ?, ?, ?)", (payload.username, hash_password(payload.password), datetime.now(timezone.utc).isoformat()))
+        conn.execute(
+            "INSERT INTO users(id, username, password_hash, created_at) VALUES (1, ?, ?, ?)",
+            (payload.username, hash_password(payload.password), datetime.now(timezone.utc).isoformat()),
+        )
     issue_session(response, 1)
     return {"ok": True, "username": payload.username}
 
@@ -283,7 +687,9 @@ async def test_instance(payload: InstanceRequest, arrmedic_session: str | None =
 async def list_instances(arrmedic_session: str | None = Cookie(default=None)) -> dict:
     require_user(arrmedic_session)
     with db() as conn:
-        rows = conn.execute("SELECT id, name, kind, url, version, os_name, created_at FROM instances ORDER BY id").fetchall()
+        rows = conn.execute(
+            "SELECT id, name, kind, url, version, os_name, api_version, last_checked, created_at FROM instances ORDER BY id"
+        ).fetchall()
     return {"items": [dict(row) for row in rows]}
 
 
@@ -293,10 +699,23 @@ async def add_instance(payload: InstanceRequest, arrmedic_session: str | None = 
     status = await probe_instance(payload)
     encrypted_key = cipher().encrypt(payload.api_key.encode()).decode()
     with db() as conn:
-        cursor = conn.execute("""
-        INSERT INTO instances(name, kind, url, api_key_enc, version, os_name, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (payload.name, payload.kind, str(payload.url).rstrip("/"), encrypted_key, status["version"], status["osName"], datetime.now(timezone.utc).isoformat()))
+        cursor = conn.execute(
+            """
+            INSERT INTO instances(name, kind, url, api_key_enc, version, os_name, api_version, last_checked, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload.name,
+                payload.kind,
+                str(payload.url).rstrip("/"),
+                encrypted_key,
+                status["version"],
+                status["osName"],
+                status.get("apiVersion"),
+                status["checkedAt"],
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
         instance_id = cursor.lastrowid
     return {"ok": True, "id": instance_id, **status}
 
@@ -304,33 +723,48 @@ async def add_instance(payload: InstanceRequest, arrmedic_session: str | None = 
 @app.post("/api/instances/{instance_id}/check")
 async def check_instance(instance_id: int, arrmedic_session: str | None = Cookie(default=None)) -> dict:
     require_user(arrmedic_session)
+    row = get_instance(instance_id)
+    payload = instance_payload(row)
+    status = await probe_instance(payload, row["api_version"])
     with db() as conn:
-        row = conn.execute("SELECT * FROM instances WHERE id = ?", (instance_id,)).fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="Service not found")
-    payload = InstanceRequest(name=row["name"], kind=row["kind"], url=row["url"], api_key=cipher().decrypt(row["api_key_enc"].encode()).decode())
-    status = await probe_instance(payload)
-    with db() as conn:
-        conn.execute("UPDATE instances SET version = ?, os_name = ? WHERE id = ?", (status["version"], status["osName"], instance_id))
+        conn.execute(
+            "UPDATE instances SET version = ?, os_name = ?, api_version = ?, last_checked = ? WHERE id = ?",
+            (status["version"], status["osName"], status.get("apiVersion"), status["checkedAt"], instance_id),
+        )
     return status
 
 
 @app.put("/api/instances/{instance_id}")
-async def update_instance(instance_id: int, payload: InstanceUpdateRequest, arrmedic_session: str | None = Cookie(default=None)) -> dict:
+async def update_instance(
+    instance_id: int,
+    payload: InstanceUpdateRequest,
+    arrmedic_session: str | None = Cookie(default=None),
+) -> dict:
     require_user(arrmedic_session)
-    with db() as conn:
-        row = conn.execute("SELECT * FROM instances WHERE id = ?", (instance_id,)).fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="Service not found")
+    row = get_instance(instance_id)
     api_key = (payload.api_key or "").strip() or cipher().decrypt(row["api_key_enc"].encode()).decode()
     probe_payload = InstanceRequest(name=payload.name, kind=payload.kind, url=payload.url, api_key=api_key)
     status = await probe_instance(probe_payload)
     encrypted_key = cipher().encrypt(api_key.encode()).decode()
     with db() as conn:
-        conn.execute("""
-        UPDATE instances SET name = ?, kind = ?, url = ?, api_key_enc = ?, version = ?, os_name = ?
-        WHERE id = ?
-        """, (payload.name, payload.kind, str(payload.url).rstrip("/"), encrypted_key, status["version"], status["osName"], instance_id))
+        conn.execute(
+            """
+            UPDATE instances
+            SET name = ?, kind = ?, url = ?, api_key_enc = ?, version = ?, os_name = ?, api_version = ?, last_checked = ?
+            WHERE id = ?
+            """,
+            (
+                payload.name,
+                payload.kind,
+                str(payload.url).rstrip("/"),
+                encrypted_key,
+                status["version"],
+                status["osName"],
+                status.get("apiVersion"),
+                status["checkedAt"],
+                instance_id,
+            ),
+        )
     return {"ok": True, "id": instance_id, **status}
 
 
@@ -342,3 +776,45 @@ async def delete_instance(instance_id: int, arrmedic_session: str | None = Cooki
     if cursor.rowcount == 0:
         raise HTTPException(status_code=404, detail="Service not found")
     return {"ok": True}
+
+
+@app.get("/api/instances/{instance_id}/diagnostics")
+async def instance_diagnostics(instance_id: int, arrmedic_session: str | None = Cookie(default=None)) -> dict:
+    require_user(arrmedic_session)
+    return await build_instance_diagnostics(get_instance(instance_id))
+
+
+@app.get("/api/diagnostics/summary")
+async def diagnostics_summary(arrmedic_session: str | None = Cookie(default=None)) -> dict:
+    require_user(arrmedic_session)
+    with db() as conn:
+        rows = conn.execute("SELECT * FROM instances ORDER BY id").fetchall()
+    if not rows:
+        return {
+            "score": None,
+            "status": "empty",
+            "instances": [],
+            "serviceCount": 0,
+            "onlineCount": 0,
+            "issueCount": 0,
+            "checkedAt": datetime.now(timezone.utc).isoformat(),
+        }
+
+    reports = await asyncio.gather(*(build_instance_diagnostics(row) for row in rows))
+    online = sum(1 for report in reports if report["status"] == "online")
+    issue_count = sum(
+        1
+        for report in reports
+        for item in report["checks"]
+        if item.get("status") in {"warn", "fail"}
+    )
+    score = round(sum(report["score"] for report in reports) / len(reports))
+    return {
+        "score": score,
+        "status": "healthy" if issue_count == 0 and online == len(reports) else "attention",
+        "instances": reports,
+        "serviceCount": len(reports),
+        "onlineCount": online,
+        "issueCount": issue_count,
+        "checkedAt": datetime.now(timezone.utc).isoformat(),
+    }
