@@ -4,6 +4,7 @@ import asyncio
 import base64
 import hashlib
 import hmac
+import json
 import os
 import secrets
 import shutil
@@ -28,11 +29,9 @@ DB_PATH = CONFIG_DIR / "arrmedic.db"
 KEY_PATH = CONFIG_DIR / "secret.key"
 SESSION_COOKIE = "arrmedic_session"
 SESSION_DAYS = 30
-APP_VERSION = "0.5.0"
+APP_VERSION = "0.6.0"
+MAX_SAVED_SCANS = 50
 
-# Sonarr/Radarr/Whisparr normally use v3. The other Servarr apps commonly use
-# v1. We retain a fallback so older/newer installations still have a chance to
-# connect without forcing users to know the API generation.
 API_VERSION_ORDER = {
     "sonarr": ("v3", "v1"),
     "radarr": ("v3", "v1"),
@@ -95,6 +94,15 @@ def init_db() -> None:
                 os_name TEXT,
                 api_version TEXT,
                 last_checked TEXT,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS diagnostic_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                score INTEGER,
+                service_count INTEGER NOT NULL,
+                online_count INTEGER NOT NULL,
+                issue_count INTEGER NOT NULL,
+                result_json TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
             """
@@ -352,7 +360,7 @@ def local_path_info(path_value: str) -> dict:
     return result
 
 
-def queue_records(data: object | None) -> list[dict]:
+def records_from(data: object | None) -> list[dict]:
     if isinstance(data, dict):
         records = data.get("records", [])
         return records if isinstance(records, list) else []
@@ -382,6 +390,283 @@ def summarize_queue_issue(item: dict) -> str | None:
     return None
 
 
+def parse_datetime(value: object) -> datetime | None:
+    if not value:
+        return None
+    try:
+        text = str(value).replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(text)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except ValueError:
+        return None
+
+
+def recent_failure_items(data: object | None, hours: int = 24) -> list[dict]:
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    failures: list[dict] = []
+    for item in records_from(data):
+        event_type = str(item.get("eventType") or "")
+        lowered = event_type.lower()
+        if not any(token in lowered for token in ("failed", "failure", "error")):
+            continue
+        occurred = parse_datetime(item.get("date"))
+        if occurred and occurred < cutoff:
+            continue
+        data_field = item.get("data") if isinstance(item.get("data"), dict) else {}
+        message = (
+            data_field.get("message")
+            or data_field.get("reason")
+            or item.get("sourceTitle")
+            or item.get("downloadId")
+            or event_type
+        )
+        failures.append(
+            {
+                "eventType": event_type,
+                "date": item.get("date"),
+                "title": item.get("sourceTitle") or item.get("movie", {}).get("title") if isinstance(item.get("movie"), dict) else item.get("sourceTitle"),
+                "message": str(message),
+            }
+        )
+    return failures[:15]
+
+
+def recommendation(
+    code: str,
+    title: str,
+    priority: str,
+    summary: str,
+    steps: list[str],
+) -> dict:
+    return {"code": code, "title": title, "priority": priority, "summary": summary, "steps": steps}
+
+
+def build_recommendations(report: dict) -> list[dict]:
+    recommendations: list[dict] = []
+    checks = {item.get("code"): item for item in report.get("checks", [])}
+    doctors = report.get("doctors", {})
+
+    if checks.get("connection", {}).get("status") == "fail":
+        recommendations.append(
+            recommendation(
+                "fix_connection",
+                "Restore the API connection",
+                "high",
+                "ArrMedic cannot reach this service or authenticate with its API.",
+                [
+                    "Confirm the service URL and port from the ArrMedic container/network.",
+                    "Confirm the API key is current and belongs to this service.",
+                    "If both containers use Docker, prefer a shared Docker network and the service/container name.",
+                ],
+            )
+        )
+        return recommendations
+
+    if checks.get("storage", {}).get("status") == "warn":
+        recommendations.append(
+            recommendation(
+                "fix_storage",
+                "Free storage before imports fail",
+                "high",
+                "One or more root folders are below ArrMedic's 10 GiB warning threshold.",
+                [
+                    "Free space on the affected filesystem or expand the volume.",
+                    "Check download-client incomplete/complete directories for abandoned data.",
+                    "Confirm the *Arr root folder still points to the intended storage.",
+                ],
+            )
+        )
+
+    if checks.get("queue", {}).get("status") == "warn":
+        recommendations.append(
+            recommendation(
+                "fix_queue",
+                "Resolve blocked queue/import items",
+                "high",
+                "The queue contains items with blocked, failed, warning or error state.",
+                [
+                    "Open the queue details below and read the extracted status message.",
+                    "Verify the download path is visible to both the download client and *Arr app.",
+                    "Check remote-path mappings when the download client is on another host or uses different paths.",
+                ],
+            )
+        )
+
+    if checks.get("download_clients", {}).get("status") == "warn":
+        recommendations.append(
+            recommendation(
+                "fix_download_client",
+                "Configure an enabled download client",
+                "medium",
+                "No enabled download client was found through the service API.",
+                [
+                    "Open the service's Download Clients settings.",
+                    "Enable a configured client or add qBittorrent, SABnzbd, Transmission, or another supported client.",
+                    "Use the service's built-in Test button before saving.",
+                ],
+            )
+        )
+
+    if checks.get("indexers", {}).get("status") == "warn":
+        recommendations.append(
+            recommendation(
+                "fix_indexers",
+                "Enable at least one working indexer",
+                "medium",
+                "Prowlarr did not report an enabled indexer.",
+                [
+                    "Open Prowlarr Indexers and enable or add an indexer.",
+                    "Run Prowlarr's Test action for each configured indexer.",
+                    "Check DNS, proxy, VPN and rate-limit errors if tests fail.",
+                ],
+            )
+        )
+
+    if checks.get("app_health", {}).get("status") in {"warn", "fail"}:
+        recommendations.append(
+            recommendation(
+                "fix_app_health",
+                "Review native application health warnings",
+                "medium",
+                "The service itself is reporting one or more health warnings.",
+                [
+                    "Open System → Status/Health in the affected *Arr app.",
+                    "Resolve the native warning first because it often points directly to the root cause.",
+                    "Run ArrMedic again after the native warning is cleared.",
+                ],
+            )
+        )
+
+    if checks.get("recent_failures", {}).get("status") == "warn":
+        recommendations.append(
+            recommendation(
+                "fix_recent_failures",
+                "Review failures from the last 24 hours",
+                "medium",
+                "Recent *Arr history contains failed/error events.",
+                [
+                    "Compare the recent failures with queue messages and application health warnings.",
+                    "Look for repeated titles, indexers, download clients or paths.",
+                    "Re-run the affected action after correcting the underlying issue.",
+                ],
+            )
+        )
+
+    path_doctor = doctors.get("path", {})
+    if path_doctor.get("status") == "info" and report.get("rootFolders"):
+        recommendations.append(
+            recommendation(
+                "enable_path_visibility",
+                "Mount media paths into ArrMedic for deeper checks",
+                "low",
+                "ArrMedic can see the path names through the API but not the same filesystem paths inside its own container.",
+                [
+                    "Bind-mount the same host media path at the same container path used by the *Arr app.",
+                    "A read-only mount is enough for current ArrMedic filesystem diagnostics.",
+                    "Recreate ArrMedic with the mount and run a new scan.",
+                ],
+            )
+        )
+
+    if doctors.get("hardlink", {}).get("status") == "warn":
+        recommendations.append(
+            recommendation(
+                "fix_hardlink_layout",
+                "Keep download and library paths on one filesystem",
+                "high",
+                "Visible paths span multiple filesystem devices, so hardlinks cannot cross those boundaries.",
+                [
+                    "Use one shared filesystem/root for downloads and media whenever possible.",
+                    "Prefer a common mount such as /data with /data/downloads and /data/media beneath it.",
+                    "Update container mounts and *Arr/download-client paths consistently before retesting.",
+                ],
+            )
+        )
+
+    if doctors.get("permission", {}).get("status") == "warn":
+        recommendations.append(
+            recommendation(
+                "fix_arrmedic_path_access",
+                "Make diagnostic mounts readable by ArrMedic",
+                "low",
+                "ArrMedic can see a mounted root path but cannot read it.",
+                [
+                    "Confirm the host path permissions allow the ArrMedic container to read the mount.",
+                    "This warning describes ArrMedic access only; verify the actual *Arr container UID/GID separately if imports fail.",
+                    "A read-only but readable mount is sufficient for ArrMedic.",
+                ],
+            )
+        )
+
+    # Stable order: high, medium, low.
+    priority_order = {"high": 0, "medium": 1, "low": 2}
+    recommendations.sort(key=lambda item: (priority_order.get(item["priority"], 9), item["title"]))
+    return recommendations
+
+
+def save_scan(summary: dict) -> int:
+    created_at = summary.get("checkedAt") or datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO diagnostic_runs(score, service_count, online_count, issue_count, result_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                summary.get("score"),
+                summary.get("serviceCount", 0),
+                summary.get("onlineCount", 0),
+                summary.get("issueCount", 0),
+                json.dumps(summary, separators=(",", ":")),
+                created_at,
+            ),
+        )
+        conn.execute(
+            "DELETE FROM diagnostic_runs WHERE id NOT IN (SELECT id FROM diagnostic_runs ORDER BY id DESC LIMIT ?)",
+            (MAX_SAVED_SCANS,),
+        )
+        return int(cursor.lastrowid)
+
+
+def latest_scan() -> dict | None:
+    with db() as conn:
+        row = conn.execute("SELECT * FROM diagnostic_runs ORDER BY id DESC LIMIT 1").fetchone()
+    if not row:
+        return None
+    try:
+        result = json.loads(row["result_json"])
+    except json.JSONDecodeError:
+        return None
+    result["runId"] = row["id"]
+    result["savedAt"] = row["created_at"]
+    return result
+
+
+def scan_history(limit: int = 20) -> list[dict]:
+    limit = max(1, min(50, limit))
+    with db() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, score, service_count, online_count, issue_count, created_at
+            FROM diagnostic_runs ORDER BY id DESC LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return [
+        {
+            "id": row["id"],
+            "score": row["score"],
+            "serviceCount": row["service_count"],
+            "onlineCount": row["online_count"],
+            "issueCount": row["issue_count"],
+            "createdAt": row["created_at"],
+        }
+        for row in rows
+    ]
+
+
 async def build_instance_diagnostics(row: sqlite3.Row) -> dict:
     payload = instance_payload(row)
     checks: list[dict] = []
@@ -393,7 +678,7 @@ async def build_instance_diagnostics(row: sqlite3.Row) -> dict:
         checks.append(check("connection", "Connection", "pass", f"Connected to {status['appName']} {status['version']}"))
     except HTTPException as exc:
         checks.append(check("connection", "Connection", "fail", str(exc.detail)))
-        return {
+        report = {
             "instanceId": row["id"],
             "name": row["name"],
             "kind": row["kind"],
@@ -412,11 +697,12 @@ async def build_instance_diagnostics(row: sqlite3.Row) -> dict:
             "downloadClients": [],
             "remotePathMappings": [],
             "health": [],
+            "recentFailures": [],
             "checkedAt": datetime.now(timezone.utc).isoformat(),
         }
+        report["recommendations"] = build_recommendations(report)
+        return report
 
-    # Run the independent API checks concurrently. Unsupported endpoints are
-    # represented as None and do not count as failures.
     async def optional(endpoint: str, params: dict | None = None):
         try:
             data, _ = await arr_get(
@@ -430,13 +716,14 @@ async def build_instance_diagnostics(row: sqlite3.Row) -> dict:
         except HTTPException:
             return None
 
-    health_data, roots_data, queue_data, clients_data, mappings_data, indexers_data = await asyncio.gather(
+    health_data, roots_data, queue_data, clients_data, mappings_data, indexers_data, history_data = await asyncio.gather(
         optional("health"),
         optional("rootfolder"),
         optional("queue", {"page": 1, "pageSize": 50}),
         optional("downloadclient"),
         optional("remotepathmapping"),
         optional("indexer"),
+        optional("history", {"page": 1, "pageSize": 50, "sortKey": "date", "sortDirection": "descending"}),
     )
 
     health_items = health_records(health_data)
@@ -482,7 +769,7 @@ async def build_instance_diagnostics(row: sqlite3.Row) -> dict:
         elif roots:
             checks.append(check("storage", "Storage", "pass", f"{len(roots)} root folder(s) reported."))
 
-    queue = queue_records(queue_data)
+    queue = records_from(queue_data)
     queue_issues = []
     for item in queue:
         issue = summarize_queue_issue(item)
@@ -519,6 +806,21 @@ async def build_instance_diagnostics(row: sqlite3.Row) -> dict:
         else:
             checks.append(check("indexers", "Indexers", "pass", f"{len(enabled_indexers)} enabled indexer(s)."))
 
+    recent_failures = recent_failure_items(history_data)
+    if history_data is not None:
+        if recent_failures:
+            checks.append(
+                check(
+                    "recent_failures",
+                    "Recent failures",
+                    "warn",
+                    f"{len(recent_failures)} failure/error event(s) found in recent history (up to 24 hours).",
+                    recent_failures,
+                )
+            )
+        else:
+            checks.append(check("recent_failures", "Recent failures", "pass", "No recent failure/error events found in the inspected history."))
+
     visible_roots = [root for root in root_details if root.get("local", {}).get("visible")]
     if roots and not visible_roots:
         path_doctor = {
@@ -541,10 +843,7 @@ async def build_instance_diagnostics(row: sqlite3.Row) -> dict:
             "paths": unreadable,
         }
     elif visible_roots:
-        permission_doctor = {
-            "status": "pass",
-            "message": "All visible root paths are readable by ArrMedic.",
-        }
+        permission_doctor = {"status": "pass", "message": "All visible root paths are readable by ArrMedic."}
     else:
         permission_doctor = {
             "status": "info",
@@ -583,7 +882,7 @@ async def build_instance_diagnostics(row: sqlite3.Row) -> dict:
             (status["version"], status["osName"], api_version, checked_at, row["id"]),
         )
 
-    return {
+    report = {
         "instanceId": row["id"],
         "name": row["name"],
         "kind": row["kind"],
@@ -606,7 +905,47 @@ async def build_instance_diagnostics(row: sqlite3.Row) -> dict:
         "remotePathMappings": mappings,
         "indexers": indexers,
         "health": health_items,
+        "recentFailures": recent_failures,
         "checkedAt": checked_at,
+    }
+    report["recommendations"] = build_recommendations(report)
+    return report
+
+
+async def build_summary() -> dict:
+    with db() as conn:
+        rows = conn.execute("SELECT * FROM instances ORDER BY id").fetchall()
+    if not rows:
+        return {
+            "score": None,
+            "status": "empty",
+            "instances": [],
+            "serviceCount": 0,
+            "onlineCount": 0,
+            "issueCount": 0,
+            "recommendationCount": 0,
+            "checkedAt": datetime.now(timezone.utc).isoformat(),
+        }
+
+    reports = await asyncio.gather(*(build_instance_diagnostics(row) for row in rows))
+    online = sum(1 for report in reports if report["status"] == "online")
+    issue_count = sum(
+        1
+        for report in reports
+        for item in report["checks"]
+        if item.get("status") in {"warn", "fail"}
+    )
+    recommendation_count = sum(len(report.get("recommendations", [])) for report in reports)
+    score = round(sum(report["score"] for report in reports) / len(reports))
+    return {
+        "score": score,
+        "status": "healthy" if issue_count == 0 and online == len(reports) else "attention",
+        "instances": reports,
+        "serviceCount": len(reports),
+        "onlineCount": online,
+        "issueCount": issue_count,
+        "recommendationCount": recommendation_count,
+        "checkedAt": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -787,34 +1126,39 @@ async def instance_diagnostics(instance_id: int, arrmedic_session: str | None = 
 @app.get("/api/diagnostics/summary")
 async def diagnostics_summary(arrmedic_session: str | None = Cookie(default=None)) -> dict:
     require_user(arrmedic_session)
-    with db() as conn:
-        rows = conn.execute("SELECT * FROM instances ORDER BY id").fetchall()
-    if not rows:
-        return {
-            "score": None,
-            "status": "empty",
-            "instances": [],
-            "serviceCount": 0,
-            "onlineCount": 0,
-            "issueCount": 0,
-            "checkedAt": datetime.now(timezone.utc).isoformat(),
-        }
+    return await build_summary()
 
-    reports = await asyncio.gather(*(build_instance_diagnostics(row) for row in rows))
-    online = sum(1 for report in reports if report["status"] == "online")
-    issue_count = sum(
-        1
-        for report in reports
-        for item in report["checks"]
-        if item.get("status") in {"warn", "fail"}
-    )
-    score = round(sum(report["score"] for report in reports) / len(reports))
+
+@app.post("/api/diagnostics/run")
+async def run_diagnostics(arrmedic_session: str | None = Cookie(default=None)) -> dict:
+    require_user(arrmedic_session)
+    summary = await build_summary()
+    run_id = save_scan(summary)
+    summary["runId"] = run_id
+    summary["savedAt"] = summary["checkedAt"]
+    return summary
+
+
+@app.get("/api/diagnostics/latest")
+async def latest_diagnostics(arrmedic_session: str | None = Cookie(default=None)) -> dict:
+    require_user(arrmedic_session)
+    saved = latest_scan()
+    if saved is not None:
+        return saved
     return {
-        "score": score,
-        "status": "healthy" if issue_count == 0 and online == len(reports) else "attention",
-        "instances": reports,
-        "serviceCount": len(reports),
-        "onlineCount": online,
-        "issueCount": issue_count,
-        "checkedAt": datetime.now(timezone.utc).isoformat(),
+        "score": None,
+        "status": "empty",
+        "instances": [],
+        "serviceCount": 0,
+        "onlineCount": 0,
+        "issueCount": 0,
+        "recommendationCount": 0,
+        "checkedAt": None,
+        "savedAt": None,
     }
+
+
+@app.get("/api/diagnostics/history")
+async def diagnostics_history(limit: int = 20, arrmedic_session: str | None = Cookie(default=None)) -> dict:
+    require_user(arrmedic_session)
+    return {"items": scan_history(limit)}
