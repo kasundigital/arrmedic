@@ -19,7 +19,8 @@ from pydantic import BaseModel, HttpUrl, field_validator
 
 APP_DIR = Path(__file__).resolve().parent
 STATIC_DIR = APP_DIR / "static"
-CONFIG_DIR = Path(os.environ.get("ARRMEDIC_CONFIG_DIR", "/config"))
+DEFAULT_CONFIG_DIR = Path.home() / ".config" / "arrmedic"
+CONFIG_DIR = Path(os.environ.get("ARRMEDIC_CONFIG_DIR", str(DEFAULT_CONFIG_DIR)))
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = CONFIG_DIR / "arrmedic.db"
 KEY_PATH = CONFIG_DIR / "secret.key"
