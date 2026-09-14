@@ -56,7 +56,8 @@ def _friendly_request_error(exc: Exception, endpoint: str) -> str:
     if isinstance(exc, httpx.ConnectTimeout):
         return "Connection timed out before the service responded."
     if isinstance(exc, httpx.ConnectError):
-        return f"Connection failed: {exc!s or exc.__class__.__name__}"
+        text = str(exc).strip() or exc.__class__.__name__
+        return f"Connection failed: {text}"
     if isinstance(exc, httpx.HTTPStatusError):
         return f"HTTP {exc.response.status_code}"
     text = str(exc).strip()
@@ -69,8 +70,6 @@ async def request_json(payload, method: str, endpoint: str, *, params: dict | No
     endpoint_name = endpoint.lstrip("/").split("/", 1)[0]
     is_library_request = method.upper() == "GET" and endpoint_name in _LIBRARY_ENDPOINTS
 
-    # Radarr/Sonarr can take a while to serialize very large libraries. Keep
-    # connection timeouts short, but allow library responses up to two minutes.
     timeout = httpx.Timeout(
         connect=10.0,
         read=120.0 if is_library_request else 30.0,
@@ -107,8 +106,6 @@ async def request_json(payload, method: str, endpoint: str, *, params: dict | No
                     last_error = exc
                     break
 
-            # Only try the alternate API version after a 404. Network/timeout
-            # failures against a valid endpoint should be reported directly.
             if isinstance(last_error, RuntimeError) and "HTTP 404" in str(last_error):
                 continue
             break
