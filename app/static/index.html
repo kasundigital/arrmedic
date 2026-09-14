@@ -8,6 +8,7 @@
   <link rel="icon" href="/static/logo.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/static/styles.css?v=0.6.0" />
   <link rel="stylesheet" href="/static/diagnostics.css?v=0.6.0" />
+  <link rel="stylesheet" href="/static/issue-center.css?v=0.6.1" />
 </head>
 <body>
   <div class="ambient ambient-a"></div><div class="ambient ambient-b"></div>
@@ -121,5 +122,6 @@
   <div id="editModal" class="modal hidden"><div class="modal-card glass"><div class="section-head"><div><span class="kicker">EDIT SERVICE</span><h2>Update connection</h2></div><button id="closeEditModal" class="close-button">×</button></div><form id="editServiceForm" class="form-stack"><input id="editId" type="hidden" /><div class="two-col"><label><span>Service name</span><input id="editName" required /></label><label><span>Service</span><select id="editKind"><option value="sonarr">Sonarr</option><option value="radarr">Radarr</option><option value="prowlarr">Prowlarr</option><option value="lidarr">Lidarr</option><option value="readarr">Readarr</option><option value="whisparr">Whisparr</option></select></label></div><label><span>URL</span><input id="editUrl" type="url" required /></label><label><span>New API key <small>(blank keeps current)</small></span><input id="editApiKey" type="password" autocomplete="off" /></label><div id="editResult" class="notice hidden"></div><div class="action-row"><button type="button" id="cancelEdit" class="button secondary">Cancel</button><button type="submit" class="button primary">Save & test</button></div></form></div></div>
 
   <script src="/static/app.js?v=0.6.0" defer></script>
+  <script src="/static/issue-center.js?v=0.6.1" defer></script>
 </body>
 </html>
