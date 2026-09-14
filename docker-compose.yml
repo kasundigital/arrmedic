@@ -1,6 +1,6 @@
 services:
   arrmedic:
-    build: .
+    image: ghcr.io/kasundigital/arrmedic:latest
     container_name: arrmedic
     ports:
       - "7080:8787"
