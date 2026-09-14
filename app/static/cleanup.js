@@ -9,11 +9,14 @@
   function key(item){return `${item.instanceId}:${item.itemId}`;}
   function notice(message,ok=false){const el=$('scanNotice');el.className=`notice ${ok?'success':'error'}`;el.textContent=message;}
   function setScanEnabled(){$('scanCleanup').disabled=!document.querySelector('[data-instance-check]:checked');}
+  function selectedItems(){return items.filter((item)=>selected.has(key(item)));}
+  function destructiveSelectionIsSafe(){const chosen=selectedItems();return chosen.length>0&&chosen.every((item)=>!item.hasMedia);}
   function updateSelected(){
     $('selectedCount').textContent=selected.size;
-    const disabled=selected.size===0;
-    $('removeSelected').disabled=disabled;
-    $('removeSelectedAndFiles').disabled=disabled;
+    $('removeSelected').disabled=selected.size===0;
+    const safe=destructiveSelectionIsSafe();
+    $('removeSelectedAndFiles').disabled=!safe;
+    $('removeSelectedAndFiles').title=safe?'Delete selected missing-media records and their managed folders':'Only available when every selected item is marked Missing';
   }
 
   function renderInstances(){
@@ -81,25 +84,33 @@
       return confirm(message);
     }
 
-    const withMedia=chosen.filter((item)=>item.hasMedia).length;
+    if(chosen.some((item)=>item.hasMedia)){
+      notice('Safety block: file/folder deletion is only allowed for items marked Missing. Use “Select missing media only”.',false);
+      return false;
+    }
+
     const folders=[...new Set(chosen.map((item)=>item.path).filter(Boolean))];
     const preview=folders.slice(0,5).map((path)=>`• ${path}`).join('\n');
     const extra=folders.length>5?`\n• …and ${folders.length-5} more folder(s)`:'';
-    const warning=`DANGER: Remove ${chosen.length} record(s) AND ask Radarr/Sonarr to delete their managed files/folders from disk?\n\nThis cannot be undone by ArrMedic.${withMedia?`\n${withMedia} selected item(s) currently report media files.`:''}${preview?`\n\nFolders include:\n${preview}${extra}`:''}`;
+    const warning=`DANGER: Remove ${chosen.length} MISSING-media record(s) and ask Radarr/Sonarr to delete their managed folders from disk?\n\nArrMedic will re-check each item before deletion and block it if media is now present.${preview?`\n\nFolders include:\n${preview}${extra}`:''}`;
     if(!confirm(warning))return false;
-    const typed=prompt(`Type DELETE to permanently remove the selected records and their managed files/folders.`);
+    const typed=prompt('Type DELETE to continue.');
     return typed==='DELETE';
   }
 
   async function removeSelected(deleteFiles=false){
-    const chosen=items.filter((item)=>selected.has(key(item)));
+    const chosen=selectedItems();
     if(!chosen.length)return;
+    if(deleteFiles&&chosen.some((item)=>item.hasMedia)){
+      notice('Safety block: destructive cleanup only works for Missing items. Select missing media only first.',false);
+      return;
+    }
     if(!confirmRemoval(chosen,deleteFiles))return;
 
     const button=deleteFiles?$('removeSelectedAndFiles'):$('removeSelected');
     const original=button.textContent;
     button.disabled=true;
-    button.textContent=deleteFiles?'Deleting…':'Removing…';
+    button.textContent=deleteFiles?'Deleting missing items…':'Removing…';
     $('removeSelected').disabled=true;
     $('removeSelectedAndFiles').disabled=true;
 
@@ -109,8 +120,8 @@
       const removedKeys=new Set((result.removed||[]).map((x)=>`${x.instanceId}:${x.itemId}`));
       items=items.filter((item)=>!removedKeys.has(key(item)));selected.clear();renderRows();
       $('candidateCount').textContent=items.length;$('staleCount').textContent=items.filter((i)=>i.staleMetadata).length;$('missingCount').textContent=items.filter((i)=>!i.hasMedia).length;
-      const action=deleteFiles?'Removed records and requested file/folder deletion for':'Removed';
-      notice(`${action} ${result.removedCount||0} item(s).${result.failedCount?` ${result.failedCount} failed.`:''}`,!result.failedCount);
+      const action=deleteFiles?'Removed missing-media records and requested folder deletion for':'Removed';
+      notice(`${action} ${result.removedCount||0} item(s).${result.failedCount?` ${result.failedCount} blocked/failed.`:''}`,!result.failedCount);
     }catch(error){notice(error.message,false);}finally{button.textContent=original;updateSelected();}
   }
 
