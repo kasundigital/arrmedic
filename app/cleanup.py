@@ -50,6 +50,15 @@ def extract_removed_ids(health: list[dict[str, Any]], kind: str) -> set[int]:
     return ids
 
 
+def item_has_media(kind: str, item: dict[str, Any]) -> bool:
+    if kind == "radarr":
+        return bool(item.get("hasFile"))
+    if kind == "sonarr":
+        stats = item.get("statistics") if isinstance(item.get("statistics"), dict) else {}
+        return int(stats.get("episodeFileCount") or 0) > 0
+    return False
+
+
 def _friendly_request_error(exc: Exception, endpoint: str) -> str:
     if isinstance(exc, httpx.ReadTimeout):
         return f"Timed out while downloading {endpoint} data. Large libraries can take longer than normal."
@@ -115,7 +124,7 @@ async def request_json(payload, method: str, endpoint: str, *, params: dict | No
 
 
 def radarr_row(instance, movie: dict, stale_ids: set[int]) -> dict:
-    has_file = bool(movie.get("hasFile"))
+    has_file = item_has_media("radarr", movie)
     movie_file = movie.get("movieFile") if isinstance(movie.get("movieFile"), dict) else {}
     tmdb_id = movie.get("tmdbId")
     return {
@@ -231,8 +240,22 @@ async def cleanup_remove(request: CleanupDeleteRequest, arrmedic_session: str | 
             instance = get_instance(selected.instance_id)
             if instance["kind"] not in {"radarr", "sonarr"}:
                 raise HTTPException(status_code=400, detail="Only Radarr and Sonarr records can be removed here")
+
             payload = instance_payload(instance)
             endpoint = "movie" if instance["kind"] == "radarr" else "series"
+
+            if request.delete_files:
+                # Fail closed: re-read the item immediately before deletion. The destructive
+                # action is allowed only when the service itself currently reports no media.
+                current = await request_json(payload, "GET", f"{endpoint}/{selected.item_id}")
+                if not isinstance(current, dict):
+                    raise HTTPException(status_code=400, detail="Unable to verify media state before destructive cleanup")
+                if item_has_media(instance["kind"], current):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Blocked for safety: this item currently has media files. Use 'Remove from app only' instead.",
+                    )
+
             await request_json(
                 payload,
                 "DELETE",
