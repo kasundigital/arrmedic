@@ -37,6 +37,8 @@ The official image is published automatically to GitHub Container Registry for b
 ghcr.io/kasundigital/arrmedic:latest
 ```
 
+ArrMedic uses port `7080` everywhere: application, container, Docker mapping, and browser access.
+
 ### Docker Compose
 
 Create a `docker-compose.yml`:
@@ -47,7 +49,7 @@ services:
     image: ghcr.io/kasundigital/arrmedic:latest
     container_name: arrmedic
     ports:
-      - "7080:8787"
+      - "7080:7080"
     volumes:
       - ./config:/config
     restart: unless-stopped
@@ -73,13 +75,11 @@ docker pull ghcr.io/kasundigital/arrmedic:latest
 
 docker run -d \
   --name arrmedic \
-  -p 7080:8787 \
+  -p 7080:7080 \
   -v ./config:/config \
   --restart unless-stopped \
   ghcr.io/kasundigital/arrmedic:latest
 ```
-
-The host uses port `7080`; ArrMedic listens on port `8787` inside the container.
 
 ## Build from source
 
@@ -87,7 +87,7 @@ The host uses port `7080`; ArrMedic listens on port `8787` inside the container.
 git clone https://github.com/kasundigital/arrmedic.git
 cd arrmedic
 docker build -t arrmedic:local .
-docker run -d --name arrmedic -p 7080:8787 -v ./config:/config arrmedic:local
+docker run -d --name arrmedic -p 7080:7080 -v ./config:/config arrmedic:local
 ```
 
 ## Run locally
