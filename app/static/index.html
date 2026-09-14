@@ -14,14 +14,12 @@
       <p class="eyebrow">ARRMEDIC</p>
       <h1 id="authTitle">Welcome to ArrMedic</h1>
       <p id="authSubtitle" class="muted">Create the administrator account for this ArrMedic installation.</p>
-
       <form id="setupForm" class="stack-form hidden">
         <label>Username<input id="setupUsername" autocomplete="username" required minlength="3" /></label>
         <label>Password<input id="setupPassword" type="password" autocomplete="new-password" required minlength="8" /></label>
         <label>Confirm password<input id="setupPassword2" type="password" autocomplete="new-password" required minlength="8" /></label>
         <button type="submit">Create administrator</button>
       </form>
-
       <form id="loginForm" class="stack-form hidden">
         <label>Username<input id="loginUsername" autocomplete="username" required /></label>
         <label>Password<input id="loginPassword" type="password" autocomplete="current-password" required /></label>
@@ -39,85 +37,112 @@
       </div>
       <p class="eyebrow">ADD YOUR SERVICES</p>
       <h1>Connect your media stack.</h1>
-      <p class="muted">Add as many services as you need. Test each connection first, then save it. The form stays here so you can immediately add the next service.</p>
-
+      <p class="muted">Test each connection, save it, then immediately add the next service from the same screen.</p>
       <div class="wizard-layout">
         <section class="card compact-card">
           <form id="wizardServiceForm" class="stack-form">
             <label>Service name<input id="wizardName" placeholder="Sonarr Main" required /></label>
             <label>Service
               <select id="wizardKind" required>
-                <option value="sonarr">Sonarr</option>
-                <option value="radarr">Radarr</option>
-                <option value="prowlarr">Prowlarr</option>
-                <option value="lidarr">Lidarr</option>
-                <option value="readarr">Readarr</option>
-                <option value="whisparr">Whisparr</option>
+                <option value="sonarr">Sonarr</option><option value="radarr">Radarr</option><option value="prowlarr">Prowlarr</option><option value="lidarr">Lidarr</option><option value="readarr">Readarr</option><option value="whisparr">Whisparr</option>
               </select>
             </label>
             <label>URL<input id="wizardUrl" type="url" placeholder="http://sonarr:8989" required /></label>
             <label>API key<input id="wizardApiKey" type="password" placeholder="Paste API key" required autocomplete="off" /></label>
-            <div class="button-row">
-              <button type="button" id="wizardTest" class="secondary">Test connection</button>
-              <button type="submit" id="wizardAdd" disabled>Add service</button>
-            </div>
+            <div class="button-row"><button type="button" id="wizardTest" class="secondary">Test connection</button><button type="submit" id="wizardAdd" disabled>Add service</button></div>
           </form>
           <div id="wizardResult" class="result hidden"></div>
         </section>
-
         <section class="card compact-card">
           <div class="section-heading"><div><p class="eyebrow">ADDED SERVICES</p><h2>Your stack</h2></div><span id="wizardCount" class="pill">0 added</span></div>
           <div id="wizardServices" class="service-list empty-state">No services added yet.</div>
         </section>
       </div>
-
-      <div class="wizard-footer">
-        <span class="muted">You can add more services later from Instances.</span>
-        <button id="finishWizard" disabled>Finish setup</button>
-      </div>
+      <div class="wizard-footer"><span class="muted">You can add more services later from Instances.</span><button id="finishWizard" disabled>Finish setup</button></div>
     </div>
   </div>
 
   <div id="appShell" class="shell hidden">
     <aside class="sidebar">
       <div class="brand"><img src="/static/logo.svg" alt="ArrMedic logo" /><div><strong>ArrMedic</strong><span>Stack Health Monitor</span></div></div>
-      <nav>
-        <a class="active" href="#dashboard">Dashboard</a>
-        <a href="#instances">Instances</a>
-        <a href="#diagnostics">Diagnostics</a>
-        <a href="#settings">Settings</a>
+      <nav id="mainNav">
+        <button class="nav-item active" data-view="dashboardView">Dashboard</button>
+        <button class="nav-item" data-view="instancesView">Instances</button>
+        <button class="nav-item" data-view="diagnosticsView">Diagnostics</button>
+        <button class="nav-item" data-view="settingsView">Settings</button>
       </nav>
-      <button id="logoutButton" class="ghost-button">Sign out</button>
-      <div class="version">v0.2.0</div>
+      <div class="sidebar-bottom">
+        <button id="logoutButton" class="ghost-button">Sign out</button>
+        <div class="version">v0.3.0</div>
+      </div>
     </aside>
 
     <main>
-      <header>
-        <div><p class="eyebrow">ARRMEDIC</p><h1>Your media stack, explained.</h1><p class="muted">Monitor every connected *Arr service from one place.</p></div>
-        <div id="apiStatus" class="pill">Checking API…</div>
-      </header>
+      <div id="dashboardView" class="app-view">
+        <header class="page-head">
+          <div><p class="eyebrow">OVERVIEW</p><h1>Media stack overview</h1><p class="muted">Live status across your connected *Arr services.</p></div>
+          <div id="apiStatus" class="pill">Checking API…</div>
+        </header>
 
-      <section id="dashboard" class="grid stats">
-        <article class="card score-card"><span class="label">Health score</span><div class="score">—<small>/100</small></div><p>Diagnostics are being built next.</p></article>
-        <article class="card"><span class="label">Connected services</span><div class="metric" id="connectedCount">0</div><p>All saved services in this ArrMedic installation.</p></article>
-        <article class="card"><span class="label">Critical issues</span><div class="metric">0</div><p>Path, permissions and hardlink checks are next.</p></article>
-      </section>
+        <section class="stats compact-stats">
+          <article class="mini-stat"><span class="label">Health score</span><strong id="healthScore">—<small>/100</small></strong><small>Diagnostics baseline</small></article>
+          <article class="mini-stat"><span class="label">Services</span><strong id="connectedCount">0</strong><small>Configured instances</small></article>
+          <article class="mini-stat"><span class="label">Online</span><strong id="onlineCount">0</strong><small>Last tested successfully</small></article>
+          <article class="mini-stat"><span class="label">Issues</span><strong id="criticalCount">0</strong><small>Connection problems</small></article>
+        </section>
 
-      <section id="instances" class="card panel">
-        <div class="section-heading"><div><p class="eyebrow">INSTANCES</p><h2>Connected services</h2></div><button id="addMoreButton" class="small-button">+ Add service</button></div>
-        <div id="instanceList" class="service-list"></div>
-      </section>
+        <section class="card panel tight-card">
+          <div class="section-heading"><div><p class="eyebrow">SERVICES</p><h2>Current status</h2></div><div class="header-actions"><button id="refreshAllButton" class="secondary small-button">Refresh all</button><button id="addMoreButton" class="small-button">+ Add service</button></div></div>
+          <div id="dashboardServiceList" class="service-table"></div>
+        </section>
 
-      <section id="diagnostics" class="card roadmap">
-        <p class="eyebrow">COMING NEXT</p><h2>Diagnostics that solve real *Arr problems</h2>
-        <div class="roadmap-grid">
-          <div><strong>Path Doctor</strong><span>Compare paths across download clients and *Arr apps.</span></div>
-          <div><strong>Hardlink Doctor</strong><span>Verify filesystems and perform a safe hardlink test.</span></div>
-          <div><strong>Permission Doctor</strong><span>Explain UID/GID and write-access failures.</span></div>
-          <div><strong>Queue Doctor</strong><span>Translate failed imports into human-readable fixes.</span></div>
-        </div>
-      </section>
+        <section class="quick-grid">
+          <article class="quick-card"><span>Path Doctor</span><strong>Coming next</strong><small>Compare paths and detect mapping issues.</small></article>
+          <article class="quick-card"><span>Hardlink Doctor</span><strong>Coming next</strong><small>Check same-filesystem and hardlink support.</small></article>
+          <article class="quick-card"><span>Permission Doctor</span><strong>Coming next</strong><small>Explain UID/GID and write-access failures.</small></article>
+          <article class="quick-card"><span>Queue Doctor</span><strong>Coming next</strong><small>Translate failed imports into readable fixes.</small></article>
+        </section>
+      </div>
+
+      <div id="instancesView" class="app-view hidden">
+        <header class="page-head"><div><p class="eyebrow">INSTANCES</p><h1>Manage services</h1><p class="muted">Test, edit or remove saved connections.</p></div><button id="instancesAddButton">+ Add service</button></header>
+        <section class="card tight-card"><div id="instanceList" class="service-table"></div></section>
+      </div>
+
+      <div id="diagnosticsView" class="app-view hidden">
+        <header class="page-head"><div><p class="eyebrow">DIAGNOSTICS</p><h1>Stack diagnostics</h1><p class="muted">Tools for the most common *Arr failures.</p></div></header>
+        <section class="diagnostic-grid">
+          <article class="diagnostic-card"><div class="diag-icon">P</div><div><strong>Path Doctor</strong><span>Validate download and library mappings.</span></div><em>Planned</em></article>
+          <article class="diagnostic-card"><div class="diag-icon">H</div><div><strong>Hardlink Doctor</strong><span>Verify hardlink support and filesystem layout.</span></div><em>Planned</em></article>
+          <article class="diagnostic-card"><div class="diag-icon">U</div><div><strong>Permission Doctor</strong><span>Check ownership, UID/GID and write access.</span></div><em>Planned</em></article>
+          <article class="diagnostic-card"><div class="diag-icon">Q</div><div><strong>Queue Doctor</strong><span>Explain blocked imports and queue errors.</span></div><em>Planned</em></article>
+        </section>
+      </div>
+
+      <div id="settingsView" class="app-view hidden">
+        <header class="page-head"><div><p class="eyebrow">SETTINGS</p><h1>ArrMedic settings</h1><p class="muted">Installation, security and interface information.</p></div></header>
+        <section class="settings-grid">
+          <article class="card tight-card"><p class="eyebrow">INSTALLATION</p><h2>Runtime</h2><div class="settings-list"><div><span>Port</span><strong>7080</strong></div><div><span>Config path</span><strong>/config</strong></div><div><span>Version</span><strong>0.3.0</strong></div></div></article>
+          <article class="card tight-card"><p class="eyebrow">SECURITY</p><h2>Credential storage</h2><p class="muted">Admin passwords are hashed and service API keys are encrypted at rest.</p></article>
+          <article class="card tight-card"><p class="eyebrow">SESSION</p><h2>Account</h2><p class="muted">Use Sign out in the sidebar to end this browser session.</p></article>
+        </section>
+      </div>
     </main>
+  </div>
+
+  <div id="editModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="section-heading"><div><p class="eyebrow">EDIT SERVICE</p><h2>Update connection</h2></div><button id="closeEditModal" class="icon-button">×</button></div>
+      <form id="editServiceForm" class="stack-form">
+        <input id="editId" type="hidden" />
+        <label>Service name<input id="editName" required /></label>
+        <label>Service<select id="editKind"><option value="sonarr">Sonarr</option><option value="radarr">Radarr</option><option value="prowlarr">Prowlarr</option><option value="lidarr">Lidarr</option><option value="readarr">Readarr</option><option value="whisparr">Whisparr</option></select></label>
+        <label>URL<input id="editUrl" type="url" required /></label>
+        <label>New API key <span class="optional">(leave blank to keep current)</span><input id="editApiKey" type="password" autocomplete="off" /></label>
+        <div id="editResult" class="result hidden"></div>
+        <div class="button-row"><button type="button" id="cancelEdit" class="secondary">Cancel</button><button type="submit">Save & test</button></div>
+      </form>
+    </div>
   </div>
 
   <script src="/static/app.js"></script>

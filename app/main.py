@@ -27,11 +27,7 @@ KEY_PATH = CONFIG_DIR / "secret.key"
 SESSION_COOKIE = "arrmedic_session"
 SESSION_DAYS = 30
 
-app = FastAPI(
-    title="ArrMedic",
-    version="0.2.0",
-    description="Open-source diagnostics and health monitoring for the *Arr media stack.",
-)
+app = FastAPI(title="ArrMedic", version="0.3.0", description="Open-source diagnostics and health monitoring for the *Arr media stack.")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 ServiceKind = Literal["sonarr", "radarr", "prowlarr", "lidarr", "readarr", "whisparr"]
@@ -45,32 +41,30 @@ def db() -> sqlite3.Connection:
 
 def init_db() -> None:
     with db() as conn:
-        conn.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                username TEXT NOT NULL UNIQUE,
-                password_hash TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS sessions (
-                token_hash TEXT PRIMARY KEY,
-                user_id INTEGER NOT NULL,
-                expires_at TEXT NOT NULL,
-                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-            );
-            CREATE TABLE IF NOT EXISTS instances (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                kind TEXT NOT NULL,
-                url TEXT NOT NULL,
-                api_key_enc TEXT NOT NULL,
-                version TEXT,
-                os_name TEXT,
-                created_at TEXT NOT NULL
-            );
-            """
-        )
+        conn.executescript("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS sessions (
+            token_hash TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            expires_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS instances (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            url TEXT NOT NULL,
+            api_key_enc TEXT NOT NULL,
+            version TEXT,
+            os_name TEXT,
+            created_at TEXT NOT NULL
+        );
+        """)
 
 
 def cipher() -> Fernet:
@@ -106,19 +100,8 @@ def issue_session(response: Response, user_id: int) -> None:
     expires = datetime.now(timezone.utc) + timedelta(days=SESSION_DAYS)
     with db() as conn:
         conn.execute("DELETE FROM sessions WHERE expires_at < ?", (datetime.now(timezone.utc).isoformat(),))
-        conn.execute(
-            "INSERT INTO sessions(token_hash, user_id, expires_at) VALUES (?, ?, ?)",
-            (token_hash, user_id, expires.isoformat()),
-        )
-    response.set_cookie(
-        SESSION_COOKIE,
-        token,
-        max_age=SESSION_DAYS * 86400,
-        httponly=True,
-        samesite="strict",
-        secure=False,
-        path="/",
-    )
+        conn.execute("INSERT INTO sessions(token_hash, user_id, expires_at) VALUES (?, ?, ?)", (token_hash, user_id, expires.isoformat()))
+    response.set_cookie(SESSION_COOKIE, token, max_age=SESSION_DAYS * 86400, httponly=True, samesite="strict", secure=False, path="/")
 
 
 def require_user(session: str | None) -> sqlite3.Row:
@@ -127,14 +110,11 @@ def require_user(session: str | None) -> sqlite3.Row:
     token_hash = hashlib.sha256(session.encode()).hexdigest()
     now = datetime.now(timezone.utc).isoformat()
     with db() as conn:
-        row = conn.execute(
-            """
-            SELECT users.* FROM sessions
-            JOIN users ON users.id = sessions.user_id
-            WHERE sessions.token_hash = ? AND sessions.expires_at > ?
-            """,
-            (token_hash, now),
-        ).fetchone()
+        row = conn.execute("""
+        SELECT users.* FROM sessions
+        JOIN users ON users.id = sessions.user_id
+        WHERE sessions.token_hash = ? AND sessions.expires_at > ?
+        """, (token_hash, now)).fetchone()
     if not row:
         raise HTTPException(status_code=401, detail="Session expired")
     return row
@@ -181,6 +161,21 @@ class InstanceRequest(BaseModel):
         return value
 
 
+class InstanceUpdateRequest(BaseModel):
+    name: str
+    kind: ServiceKind
+    url: HttpUrl
+    api_key: str | None = None
+
+    @field_validator("name")
+    @classmethod
+    def name_not_blank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Service name is required")
+        return value
+
+
 async def probe_instance(payload: InstanceRequest) -> dict:
     base_url = str(payload.url).rstrip("/")
     headers = {"X-Api-Key": payload.api_key}
@@ -201,6 +196,7 @@ async def probe_instance(payload: InstanceRequest) -> dict:
         "version": data.get("version", "unknown"),
         "osName": data.get("osName", "unknown"),
         "runtimeVersion": data.get("runtimeVersion", "unknown"),
+        "checkedAt": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -214,7 +210,7 @@ async def dashboard() -> FileResponse:
 
 @app.get("/api/health")
 async def health() -> dict:
-    return {"status": "healthy", "name": "ArrMedic", "version": "0.2.0"}
+    return {"status": "healthy", "name": "ArrMedic", "version": "0.3.0"}
 
 
 @app.get("/api/setup/status")
@@ -240,10 +236,7 @@ async def create_admin(payload: SetupRequest, response: Response) -> dict:
     with db() as conn:
         if conn.execute("SELECT 1 FROM users LIMIT 1").fetchone():
             raise HTTPException(status_code=409, detail="ArrMedic is already configured")
-        conn.execute(
-            "INSERT INTO users(id, username, password_hash, created_at) VALUES (1, ?, ?, ?)",
-            (payload.username, hash_password(payload.password), datetime.now(timezone.utc).isoformat()),
-        )
+        conn.execute("INSERT INTO users(id, username, password_hash, created_at) VALUES (1, ?, ?, ?)", (payload.username, hash_password(payload.password), datetime.now(timezone.utc).isoformat()))
     issue_session(response, 1)
     return {"ok": True, "username": payload.username}
 
@@ -278,9 +271,7 @@ async def test_instance(payload: InstanceRequest, arrmedic_session: str | None =
 async def list_instances(arrmedic_session: str | None = Cookie(default=None)) -> dict:
     require_user(arrmedic_session)
     with db() as conn:
-        rows = conn.execute(
-            "SELECT id, name, kind, url, version, os_name, created_at FROM instances ORDER BY id"
-        ).fetchall()
+        rows = conn.execute("SELECT id, name, kind, url, version, os_name, created_at FROM instances ORDER BY id").fetchall()
     return {"items": [dict(row) for row in rows]}
 
 
@@ -290,22 +281,44 @@ async def add_instance(payload: InstanceRequest, arrmedic_session: str | None = 
     status = await probe_instance(payload)
     encrypted_key = cipher().encrypt(payload.api_key.encode()).decode()
     with db() as conn:
-        cursor = conn.execute(
-            """
-            INSERT INTO instances(name, kind, url, api_key_enc, version, os_name, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                payload.name,
-                payload.kind,
-                str(payload.url).rstrip("/"),
-                encrypted_key,
-                status["version"],
-                status["osName"],
-                datetime.now(timezone.utc).isoformat(),
-            ),
-        )
+        cursor = conn.execute("""
+        INSERT INTO instances(name, kind, url, api_key_enc, version, os_name, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (payload.name, payload.kind, str(payload.url).rstrip("/"), encrypted_key, status["version"], status["osName"], datetime.now(timezone.utc).isoformat()))
         instance_id = cursor.lastrowid
+    return {"ok": True, "id": instance_id, **status}
+
+
+@app.post("/api/instances/{instance_id}/check")
+async def check_instance(instance_id: int, arrmedic_session: str | None = Cookie(default=None)) -> dict:
+    require_user(arrmedic_session)
+    with db() as conn:
+        row = conn.execute("SELECT * FROM instances WHERE id = ?", (instance_id,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Service not found")
+    payload = InstanceRequest(name=row["name"], kind=row["kind"], url=row["url"], api_key=cipher().decrypt(row["api_key_enc"].encode()).decode())
+    status = await probe_instance(payload)
+    with db() as conn:
+        conn.execute("UPDATE instances SET version = ?, os_name = ? WHERE id = ?", (status["version"], status["osName"], instance_id))
+    return status
+
+
+@app.put("/api/instances/{instance_id}")
+async def update_instance(instance_id: int, payload: InstanceUpdateRequest, arrmedic_session: str | None = Cookie(default=None)) -> dict:
+    require_user(arrmedic_session)
+    with db() as conn:
+        row = conn.execute("SELECT * FROM instances WHERE id = ?", (instance_id,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Service not found")
+    api_key = (payload.api_key or "").strip() or cipher().decrypt(row["api_key_enc"].encode()).decode()
+    probe_payload = InstanceRequest(name=payload.name, kind=payload.kind, url=payload.url, api_key=api_key)
+    status = await probe_instance(probe_payload)
+    encrypted_key = cipher().encrypt(api_key.encode()).decode()
+    with db() as conn:
+        conn.execute("""
+        UPDATE instances SET name = ?, kind = ?, url = ?, api_key_enc = ?, version = ?, os_name = ?
+        WHERE id = ?
+        """, (payload.name, payload.kind, str(payload.url).rstrip("/"), encrypted_key, status["version"], status["osName"], instance_id))
     return {"ok": True, "id": instance_id, **status}
 
 

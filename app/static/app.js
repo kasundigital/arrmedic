@@ -1,232 +1,49 @@
-const qs = (id) => document.getElementById(id);
-const screens = ['authScreen', 'wizardScreen', 'appShell'];
-let testedFingerprint = null;
+const qs=(id)=>document.getElementById(id);
+const screens=['authScreen','wizardScreen','appShell'];
+const views=['dashboardView','instancesView','diagnosticsView','settingsView'];
+let testedFingerprint=null;
+let instances=[];
+let statusMap=new Map();
 
-function showScreen(id) {
-  screens.forEach((name) => qs(name).classList.toggle('hidden', name !== id));
-}
+function showScreen(id){screens.forEach((name)=>qs(name).classList.toggle('hidden',name!==id));}
+function showView(id){views.forEach((name)=>qs(name).classList.toggle('hidden',name!==id));document.querySelectorAll('.nav-item').forEach((b)=>b.classList.toggle('active',b.dataset.view===id));}
+function showResult(el,message,ok=false){el.className=`result ${ok?'success':'error'}`;el.textContent=message;}
+async function api(url,options={}){const response=await fetch(url,{credentials:'same-origin',headers:{'Content-Type':'application/json',...(options.headers||{})},...options});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.detail||`Request failed (${response.status})`);return data;}
+function escapeHtml(value){return String(value??'').replace(/[&<>'"]/g,(ch)=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));}
+function servicePayload(){return{name:qs('wizardName').value.trim(),kind:qs('wizardKind').value,url:qs('wizardUrl').value.trim(),api_key:qs('wizardApiKey').value.trim()};}
+function fingerprint(payload){return JSON.stringify(payload);}
+function resetServiceTest(){testedFingerprint=null;qs('wizardAdd').disabled=true;qs('wizardResult').className='result hidden';}
+function prepareNextService(){qs('wizardName').value='';qs('wizardUrl').value='';qs('wizardApiKey').value='';resetServiceTest();qs('wizardName').focus();}
+function statusFor(id){return statusMap.get(Number(id))||{state:'unknown',text:'Not checked'};}
+function updateCounters(){const total=instances.length;const online=[...statusMap.values()].filter((s)=>s.state==='online').length;const offline=[...statusMap.values()].filter((s)=>s.state==='offline').length;qs('connectedCount').textContent=total;qs('onlineCount').textContent=online;qs('criticalCount').textContent=offline;qs('healthScore').innerHTML=total?`${Math.max(0,Math.round(((total-offline)/total)*100))}<small>/100</small>`:'—<small>/100</small>';}
+function rowTemplate(item,withActions=true){const s=statusFor(item.id);const badge=s.state==='offline'?'<span class="status-badge offline">Offline</span>':s.state==='online'?'<span class="status-badge">Online</span>':'<span class="status-badge">Saved</span>';return `<div class="service-row" data-id="${item.id}"><div class="service-main"><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.kind).toUpperCase()}</span></div><div class="service-url">${escapeHtml(item.url)}</div><div class="service-meta">v${escapeHtml(item.version||'unknown')} · ${escapeHtml(item.os_name||'unknown')}</div>${badge}<div class="row-actions">${withActions?`<button data-check="${item.id}">Test</button><button data-edit="${item.id}">Edit</button><button class="danger" data-delete="${item.id}">Delete</button>`:''}</div></div>`;}
+function renderInstances(){qs('dashboardServiceList').innerHTML=instances.length?instances.map((i)=>rowTemplate(i,true)).join(''):'<div class="empty-state">No services configured.</div>';qs('instanceList').innerHTML=instances.length?instances.map((i)=>rowTemplate(i,true)).join(''):'<div class="empty-state">No services configured.</div>';qs('wizardCount').textContent=`${instances.length} added`;qs('finishWizard').disabled=instances.length===0;qs('wizardServices').classList.toggle('empty-state',instances.length===0);qs('wizardServices').innerHTML=instances.length?instances.map((i)=>`<div class="service-item"><div><strong>${escapeHtml(i.name)}</strong><span>${escapeHtml(i.kind).toUpperCase()} · ${escapeHtml(i.url)}</span><small>Version ${escapeHtml(i.version||'unknown')} · ${escapeHtml(i.os_name||'unknown')}</small></div><button class="danger-button" data-delete="${i.id}">Remove</button></div>`).join(''):'No services added yet.';updateCounters();}
+async function loadInstances(){const data=await api('/api/instances');instances=data.items||[];renderInstances();return instances;}
+async function checkOne(id,button){if(button){button.disabled=true;button.textContent='Testing…';}try{const data=await api(`/api/instances/${id}/check`,{method:'POST'});statusMap.set(Number(id),{state:'online',text:data.checkedAt});await loadInstances();}catch(error){statusMap.set(Number(id),{state:'offline',text:error.message});renderInstances();}finally{if(button){button.disabled=false;button.textContent='Test';}}}
+async function refreshAll(){const button=qs('refreshAllButton');button.disabled=true;button.textContent='Checking…';for(const item of instances){await checkOne(item.id,null);}button.disabled=false;button.textContent='Refresh all';}
+function openEdit(id){const item=instances.find((i)=>Number(i.id)===Number(id));if(!item)return;qs('editId').value=item.id;qs('editName').value=item.name;qs('editKind').value=item.kind;qs('editUrl').value=item.url;qs('editApiKey').value='';qs('editResult').className='result hidden';qs('editModal').classList.remove('hidden');}
+function closeEdit(){qs('editModal').classList.add('hidden');}
+async function deleteInstance(id){if(!confirm('Remove this service from ArrMedic?'))return;await api(`/api/instances/${id}`,{method:'DELETE'});statusMap.delete(Number(id));await loadInstances();}
+async function handleServiceTableClick(event){const check=event.target.closest('[data-check]');const edit=event.target.closest('[data-edit]');const del=event.target.closest('[data-delete]');if(check)return checkOne(check.dataset.check,check);if(edit)return openEdit(edit.dataset.edit);if(del)return deleteInstance(del.dataset.delete);}
 
-function showResult(el, message, ok = false) {
-  el.className = `result ${ok ? 'success' : 'error'}`;
-  el.textContent = message;
-}
+async function bootstrap(){try{const status=await api('/api/setup/status');if(!status.configured){qs('authTitle').textContent='Welcome to ArrMedic';qs('authSubtitle').textContent='Create the administrator account for this ArrMedic installation.';qs('setupForm').classList.remove('hidden');qs('loginForm').classList.add('hidden');showScreen('authScreen');return;}if(!status.authenticated){qs('authTitle').textContent='Sign in to ArrMedic';qs('authSubtitle').textContent='Use the administrator account created during setup.';qs('setupForm').classList.add('hidden');qs('loginForm').classList.remove('hidden');showScreen('authScreen');return;}await loadInstances();showScreen('appShell');showView('dashboardView');checkApi();}catch(error){showScreen('authScreen');showResult(qs('authResult'),error.message);}}
 
-async function api(url, options = {}) {
-  const response = await fetch(url, {
-    credentials: 'same-origin',
-    headers: {'Content-Type': 'application/json', ...(options.headers || {})},
-    ...options,
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.detail || `Request failed (${response.status})`);
-  return data;
-}
-
-function servicePayload() {
-  return {
-    name: qs('wizardName').value.trim(),
-    kind: qs('wizardKind').value,
-    url: qs('wizardUrl').value.trim(),
-    api_key: qs('wizardApiKey').value.trim(),
-  };
-}
-
-function fingerprint(payload) {
-  return JSON.stringify(payload);
-}
-
-function resetServiceTest() {
-  testedFingerprint = null;
-  qs('wizardAdd').disabled = true;
-  qs('wizardResult').className = 'result hidden';
-}
-
-function prepareNextService() {
-  qs('wizardName').value = '';
-  qs('wizardUrl').value = '';
-  qs('wizardApiKey').value = '';
-  resetServiceTest();
-  qs('wizardName').focus();
-}
-
-async function loadInstances(target = 'both') {
-  const data = await api('/api/instances');
-  const items = data.items || [];
-  qs('connectedCount').textContent = items.length;
-  qs('wizardCount').textContent = `${items.length} added`;
-  qs('finishWizard').disabled = items.length === 0;
-
-  const card = (item, removable = false) => `
-    <div class="service-item">
-      <div>
-        <strong>${escapeHtml(item.name)}</strong>
-        <span>${item.kind.toUpperCase()} · ${escapeHtml(item.url)}</span>
-        <small>Version ${escapeHtml(item.version || 'unknown')} · ${escapeHtml(item.os_name || 'unknown')}</small>
-      </div>
-      ${removable ? `<button class="danger-button" data-delete="${item.id}">Remove</button>` : '<span class="status-dot">Connected</span>'}
-    </div>`;
-
-  if (target === 'both' || target === 'wizard') {
-    qs('wizardServices').classList.toggle('empty-state', items.length === 0);
-    qs('wizardServices').innerHTML = items.length ? items.map((i) => card(i, true)).join('') : 'No services added yet.';
-  }
-  if (target === 'both' || target === 'app') {
-    qs('instanceList').innerHTML = items.length ? items.map((i) => card(i, false)).join('') : '<div class="empty-state">No services configured.</div>';
-  }
-}
-
-function escapeHtml(value) {
-  return String(value).replace(/[&<>'"]/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
-}
-
-async function bootstrap() {
-  try {
-    const status = await api('/api/setup/status');
-    if (!status.configured) {
-      qs('authTitle').textContent = 'Welcome to ArrMedic';
-      qs('authSubtitle').textContent = 'Create the administrator account for this ArrMedic installation.';
-      qs('setupForm').classList.remove('hidden');
-      qs('loginForm').classList.add('hidden');
-      showScreen('authScreen');
-      return;
-    }
-    if (!status.authenticated) {
-      qs('authTitle').textContent = 'Sign in to ArrMedic';
-      qs('authSubtitle').textContent = 'Use the administrator account created during setup.';
-      qs('setupForm').classList.add('hidden');
-      qs('loginForm').classList.remove('hidden');
-      showScreen('authScreen');
-      return;
-    }
-    await loadInstances('both');
-    showScreen('appShell');
-    checkApi();
-  } catch (error) {
-    showScreen('authScreen');
-    showResult(qs('authResult'), error.message);
-  }
-}
-
-qs('setupForm').addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const payload = {
-    username: qs('setupUsername').value.trim(),
-    password: qs('setupPassword').value,
-    confirm_password: qs('setupPassword2').value,
-  };
-  try {
-    await api('/api/setup/admin', {method: 'POST', body: JSON.stringify(payload)});
-    showScreen('wizardScreen');
-    await loadInstances('wizard');
-  } catch (error) {
-    showResult(qs('authResult'), error.message);
-  }
-});
-
-qs('loginForm').addEventListener('submit', async (event) => {
-  event.preventDefault();
-  try {
-    await api('/api/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({username: qs('loginUsername').value.trim(), password: qs('loginPassword').value}),
-    });
-    await loadInstances('both');
-    showScreen('appShell');
-    checkApi();
-  } catch (error) {
-    showResult(qs('authResult'), error.message);
-  }
-});
-
-['wizardName', 'wizardKind', 'wizardUrl', 'wizardApiKey'].forEach((id) => qs(id).addEventListener('input', resetServiceTest));
-qs('wizardKind').addEventListener('change', () => {
-  const defaults = {sonarr:8989, radarr:7878, prowlarr:9696, lidarr:8686, readarr:8787, whisparr:6969};
-  const kind = qs('wizardKind').value;
-  qs('wizardName').value = `${kind.charAt(0).toUpperCase() + kind.slice(1)} Main`;
-  qs('wizardUrl').placeholder = `http://${kind}:${defaults[kind] || 80}`;
-  resetServiceTest();
-});
-
-qs('wizardTest').addEventListener('click', async () => {
-  const payload = servicePayload();
-  const button = qs('wizardTest');
-  button.disabled = true;
-  button.textContent = 'Testing…';
-  try {
-    const data = await api('/api/instances/test', {method:'POST', body:JSON.stringify(payload)});
-    testedFingerprint = fingerprint(payload);
-    qs('wizardAdd').disabled = false;
-    showResult(qs('wizardResult'), `✓ Connected to ${data.appName} ${data.version} on ${data.osName}`, true);
-  } catch (error) {
-    testedFingerprint = null;
-    qs('wizardAdd').disabled = true;
-    showResult(qs('wizardResult'), `✕ ${error.message}`);
-  } finally {
-    button.disabled = false;
-    button.textContent = 'Test connection';
-  }
-});
-
-qs('wizardServiceForm').addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const payload = servicePayload();
-  if (fingerprint(payload) !== testedFingerprint) {
-    showResult(qs('wizardResult'), 'Please test this connection again before adding it.');
-    qs('wizardAdd').disabled = true;
-    return;
-  }
-  const button = qs('wizardAdd');
-  button.disabled = true;
-  button.textContent = 'Adding…';
-  try {
-    const data = await api('/api/instances', {method:'POST', body:JSON.stringify(payload)});
-    showResult(qs('wizardResult'), `✓ ${payload.name} added successfully (${data.version})`, true);
-    await loadInstances('wizard');
-    setTimeout(prepareNextService, 550);
-  } catch (error) {
-    showResult(qs('wizardResult'), `✕ ${error.message}`);
-    button.disabled = false;
-  } finally {
-    button.textContent = 'Add service';
-  }
-});
-
-qs('wizardServices').addEventListener('click', async (event) => {
-  const button = event.target.closest('[data-delete]');
-  if (!button) return;
-  try {
-    await api(`/api/instances/${button.dataset.delete}`, {method:'DELETE'});
-    await loadInstances('wizard');
-  } catch (error) {
-    showResult(qs('wizardResult'), error.message);
-  }
-});
-
-qs('finishWizard').addEventListener('click', async () => {
-  await loadInstances('both');
-  showScreen('appShell');
-  checkApi();
-});
-
-qs('addMoreButton').addEventListener('click', async () => {
-  prepareNextService();
-  await loadInstances('wizard');
-  showScreen('wizardScreen');
-});
-
-qs('logoutButton').addEventListener('click', async () => {
-  await api('/api/auth/logout', {method:'POST'});
-  window.location.reload();
-});
-
-async function checkApi() {
-  try {
-    const data = await api('/api/health');
-    qs('apiStatus').textContent = `${data.name} API healthy`;
-    qs('apiStatus').classList.add('ok');
-  } catch (_) {
-    qs('apiStatus').textContent = 'API unavailable';
-  }
-}
-
+qs('mainNav').addEventListener('click',(event)=>{const button=event.target.closest('[data-view]');if(button)showView(button.dataset.view);});
+qs('setupForm').addEventListener('submit',async(event)=>{event.preventDefault();try{await api('/api/setup/admin',{method:'POST',body:JSON.stringify({username:qs('setupUsername').value.trim(),password:qs('setupPassword').value,confirm_password:qs('setupPassword2').value})});showScreen('wizardScreen');await loadInstances();}catch(error){showResult(qs('authResult'),error.message);}});
+qs('loginForm').addEventListener('submit',async(event)=>{event.preventDefault();try{await api('/api/auth/login',{method:'POST',body:JSON.stringify({username:qs('loginUsername').value.trim(),password:qs('loginPassword').value})});await loadInstances();showScreen('appShell');showView('dashboardView');checkApi();}catch(error){showResult(qs('authResult'),error.message);}});
+['wizardName','wizardKind','wizardUrl','wizardApiKey'].forEach((id)=>qs(id).addEventListener('input',resetServiceTest));
+qs('wizardKind').addEventListener('change',()=>{const defaults={sonarr:8989,radarr:7878,prowlarr:9696,lidarr:8686,readarr:8787,whisparr:6969};const kind=qs('wizardKind').value;qs('wizardName').value=`${kind.charAt(0).toUpperCase()+kind.slice(1)} Main`;qs('wizardUrl').placeholder=`http://${kind}:${defaults[kind]||80}`;resetServiceTest();});
+qs('wizardTest').addEventListener('click',async()=>{const payload=servicePayload();const button=qs('wizardTest');button.disabled=true;button.textContent='Testing…';try{const data=await api('/api/instances/test',{method:'POST',body:JSON.stringify(payload)});testedFingerprint=fingerprint(payload);qs('wizardAdd').disabled=false;showResult(qs('wizardResult'),`✓ Connected to ${data.appName} ${data.version} on ${data.osName}`,true);}catch(error){testedFingerprint=null;qs('wizardAdd').disabled=true;showResult(qs('wizardResult'),`✕ ${error.message}`);}finally{button.disabled=false;button.textContent='Test connection';}});
+qs('wizardServiceForm').addEventListener('submit',async(event)=>{event.preventDefault();const payload=servicePayload();if(fingerprint(payload)!==testedFingerprint){showResult(qs('wizardResult'),'Please test this connection again before adding it.');return;}const button=qs('wizardAdd');button.disabled=true;button.textContent='Adding…';try{await api('/api/instances',{method:'POST',body:JSON.stringify(payload)});showResult(qs('wizardResult'),`✓ ${payload.name} added successfully`,true);await loadInstances();setTimeout(prepareNextService,450);}catch(error){showResult(qs('wizardResult'),`✕ ${error.message}`);button.disabled=false;}finally{button.textContent='Add service';}});
+qs('wizardServices').addEventListener('click',handleServiceTableClick);
+qs('dashboardServiceList').addEventListener('click',handleServiceTableClick);
+qs('instanceList').addEventListener('click',handleServiceTableClick);
+qs('finishWizard').addEventListener('click',async()=>{await loadInstances();showScreen('appShell');showView('dashboardView');checkApi();});
+function openWizard(){prepareNextService();loadInstances();showScreen('wizardScreen');}
+qs('addMoreButton').addEventListener('click',openWizard);qs('instancesAddButton').addEventListener('click',openWizard);
+qs('refreshAllButton').addEventListener('click',refreshAll);
+qs('logoutButton').addEventListener('click',async()=>{await api('/api/auth/logout',{method:'POST'});window.location.reload();});
+qs('closeEditModal').addEventListener('click',closeEdit);qs('cancelEdit').addEventListener('click',closeEdit);qs('editModal').addEventListener('click',(e)=>{if(e.target===qs('editModal'))closeEdit();});
+qs('editServiceForm').addEventListener('submit',async(event)=>{event.preventDefault();const id=qs('editId').value;const payload={name:qs('editName').value.trim(),kind:qs('editKind').value,url:qs('editUrl').value.trim(),api_key:qs('editApiKey').value.trim()||null};try{await api(`/api/instances/${id}`,{method:'PUT',body:JSON.stringify(payload)});statusMap.set(Number(id),{state:'online'});await loadInstances();closeEdit();}catch(error){showResult(qs('editResult'),error.message);}});
+async function checkApi(){try{const data=await api('/api/health');qs('apiStatus').textContent=`${data.name} API healthy`;qs('apiStatus').classList.add('ok');}catch(_){qs('apiStatus').textContent='API unavailable';}}
 bootstrap();
