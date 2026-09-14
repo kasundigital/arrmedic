@@ -221,10 +221,9 @@ async def cleanup_scan(request: CleanupScanRequest, arrmedic_session: str | None
 @router.post("/remove")
 async def cleanup_remove(request: CleanupDeleteRequest, arrmedic_session: str | None = Cookie(default=None, alias=SESSION_COOKIE)):
     require_user(arrmedic_session)
-    if request.delete_files:
-        raise HTTPException(status_code=400, detail="Cleanup Scanner never deletes media files. Only application records are removed.")
     if not request.items:
         raise HTTPException(status_code=400, detail="Select at least one library item")
+
     removed: list[dict] = []
     failed: list[dict] = []
     for selected in request.items:
@@ -234,9 +233,30 @@ async def cleanup_remove(request: CleanupDeleteRequest, arrmedic_session: str | 
                 raise HTTPException(status_code=400, detail="Only Radarr and Sonarr records can be removed here")
             payload = instance_payload(instance)
             endpoint = "movie" if instance["kind"] == "radarr" else "series"
-            await request_json(payload, "DELETE", f"{endpoint}/{selected.item_id}", params={"deleteFiles": "false", "addImportExclusion": "true" if request.add_import_exclusion else "false"})
-            removed.append({"instanceId": selected.instance_id, "itemId": selected.item_id})
+            await request_json(
+                payload,
+                "DELETE",
+                f"{endpoint}/{selected.item_id}",
+                params={
+                    "deleteFiles": "true" if request.delete_files else "false",
+                    "addImportExclusion": "true" if request.add_import_exclusion else "false",
+                },
+            )
+            removed.append(
+                {
+                    "instanceId": selected.instance_id,
+                    "itemId": selected.item_id,
+                    "deleteFiles": request.delete_files,
+                }
+            )
         except Exception as exc:
             detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
             failed.append({"instanceId": selected.instance_id, "itemId": selected.item_id, "error": detail})
-    return {"removed": removed, "failed": failed, "removedCount": len(removed), "failedCount": len(failed)}
+
+    return {
+        "removed": removed,
+        "failed": failed,
+        "removedCount": len(removed),
+        "failedCount": len(failed),
+        "deleteFiles": request.delete_files,
+    }

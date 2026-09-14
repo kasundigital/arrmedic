@@ -6,14 +6,14 @@
   <meta name="color-scheme" content="dark" />
   <title>ArrMedic Cleanup Scanner</title>
   <link rel="icon" href="/static/logo.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/static/styles.css?v=0.7.1" />
-  <link rel="stylesheet" href="/static/cleanup.css?v=0.7.1" />
+  <link rel="stylesheet" href="/static/styles.css?v=0.8.0" />
+  <link rel="stylesheet" href="/static/cleanup.css?v=0.8.0" />
 </head>
 <body>
   <main class="cleanup-shell">
     <header class="cleanup-head">
       <div>
-        <span class="kicker">LIBRARY CLEANUP · v0.7.1</span>
+        <span class="kicker">LIBRARY CLEANUP · v0.8.0</span>
         <h1>Cleanup Scanner</h1>
         <p>Scan selected Radarr and Sonarr instances for stale metadata records and items with no media files.</p>
       </div>
@@ -36,7 +36,7 @@
           <div><span>No media file</span><strong id="missingCount">0</strong></div>
           <div><span>Selected</span><strong id="selectedCount">0</strong></div>
         </div>
-        <p class="cleanup-note">Removal is safe by default: ArrMedic removes the Radarr/Sonarr database record only. It never deletes media files from disk.</p>
+        <p class="cleanup-note">Choose the safe action to remove only the Radarr/Sonarr record, or the danger action to also ask Radarr/Sonarr to permanently delete its managed files and folder from disk.</p>
       </article>
     </section>
 
@@ -50,9 +50,11 @@
         </div>
         <div class="cleanup-actions">
           <label class="exclusion-toggle"><input id="addExclusion" type="checkbox" /> Add import exclusion</label>
-          <button id="removeSelected" class="button primary" disabled>Remove selected from app</button>
+          <button id="removeSelected" class="button primary" disabled>Remove from app only</button>
+          <button id="removeSelectedAndFiles" class="button danger-action" disabled>Remove + delete files/folder</button>
         </div>
       </div>
+      <div class="destructive-note"><strong>Danger action:</strong> Radarr/Sonarr receives <code>deleteFiles=true</code>. Use it only when you really want the selected media folder/files permanently removed from disk.</div>
       <div class="cleanup-filter-row">
         <input id="cleanupSearch" type="search" placeholder="Search title, instance, ID or path…" />
         <select id="cleanupFilter"><option value="all">All candidates</option><option value="stale">Removed metadata</option><option value="missing">No media file</option><option value="both">Removed + no media</option></select>
@@ -65,6 +67,6 @@
       </div>
     </section>
   </main>
-  <script src="/static/cleanup.js?v=0.7.1" defer></script>
+  <script src="/static/cleanup.js?v=0.8.0" defer></script>
 </body>
 </html>
