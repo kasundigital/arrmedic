@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import Any
 
@@ -32,6 +33,8 @@ _REMOVED_PATTERNS = (
     re.compile(r"tvdbid\s+(\d+)", re.I),
 )
 
+_LIBRARY_ENDPOINTS = {"movie", "series"}
+
 
 def extract_removed_ids(health: list[dict[str, Any]], kind: str) -> set[int]:
     ids: set[int] = set()
@@ -47,30 +50,71 @@ def extract_removed_ids(health: list[dict[str, Any]], kind: str) -> set[int]:
     return ids
 
 
+def _friendly_request_error(exc: Exception, endpoint: str) -> str:
+    if isinstance(exc, httpx.ReadTimeout):
+        return f"Timed out while downloading {endpoint} data. Large libraries can take longer than normal."
+    if isinstance(exc, httpx.ConnectTimeout):
+        return "Connection timed out before the service responded."
+    if isinstance(exc, httpx.ConnectError):
+        return f"Connection failed: {exc!s or exc.__class__.__name__}"
+    if isinstance(exc, httpx.HTTPStatusError):
+        return f"HTTP {exc.response.status_code}"
+    text = str(exc).strip()
+    return text or exc.__class__.__name__
+
+
 async def request_json(payload, method: str, endpoint: str, *, params: dict | None = None) -> Any:
     base = str(payload.url).rstrip("/")
     headers = {"X-Api-Key": payload.api_key}
+    endpoint_name = endpoint.lstrip("/").split("/", 1)[0]
+    is_library_request = method.upper() == "GET" and endpoint_name in _LIBRARY_ENDPOINTS
+
+    # Radarr/Sonarr can take a while to serialize very large libraries. Keep
+    # connection timeouts short, but allow library responses up to two minutes.
+    timeout = httpx.Timeout(
+        connect=10.0,
+        read=120.0 if is_library_request else 30.0,
+        write=30.0,
+        pool=10.0,
+    )
+    attempts = 2 if is_library_request else 1
     last_error: Exception | None = None
-    for version in api_versions(payload.kind):
-        url = f"{base}/api/{version}/{endpoint.lstrip('/')}"
-        try:
-            async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
-                response = await client.request(method, url, headers=headers, params=params)
-            if response.status_code == 404:
-                last_error = RuntimeError(f"HTTP 404 for {endpoint}")
+
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        for version in api_versions(payload.kind):
+            url = f"{base}/api/{version}/{endpoint.lstrip('/')}"
+            for attempt in range(attempts):
+                try:
+                    response = await client.request(method, url, headers=headers, params=params)
+                    if response.status_code == 404:
+                        last_error = RuntimeError(f"HTTP 404 for {endpoint}")
+                        break
+                    if response.status_code == 401:
+                        raise HTTPException(status_code=400, detail=f"{payload.kind.title()} rejected the API key")
+                    response.raise_for_status()
+                    if not response.content:
+                        return None
+                    return response.json()
+                except HTTPException:
+                    raise
+                except httpx.ReadTimeout as exc:
+                    last_error = exc
+                    if attempt + 1 < attempts:
+                        await asyncio.sleep(1.0)
+                        continue
+                    break
+                except (httpx.RequestError, httpx.HTTPStatusError, ValueError) as exc:
+                    last_error = exc
+                    break
+
+            # Only try the alternate API version after a 404. Network/timeout
+            # failures against a valid endpoint should be reported directly.
+            if isinstance(last_error, RuntimeError) and "HTTP 404" in str(last_error):
                 continue
-            if response.status_code == 401:
-                raise HTTPException(status_code=400, detail=f"{payload.kind.title()} rejected the API key")
-            response.raise_for_status()
-            if not response.content:
-                return None
-            return response.json()
-        except HTTPException:
-            raise
-        except (httpx.RequestError, httpx.HTTPStatusError, ValueError) as exc:
-            last_error = exc
             break
-    raise HTTPException(status_code=400, detail=f"Unable to call {payload.kind.title()} {endpoint}: {last_error}")
+
+    detail = _friendly_request_error(last_error or RuntimeError("Unknown request failure"), endpoint)
+    raise HTTPException(status_code=400, detail=f"Unable to call {payload.kind.title()} {endpoint}: {detail}")
 
 
 def radarr_row(instance, movie: dict, stale_ids: set[int]) -> dict:
