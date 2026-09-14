@@ -6,7 +6,8 @@
   <meta name="color-scheme" content="dark" />
   <title>ArrMedic</title>
   <link rel="icon" href="/static/logo.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/static/styles.css?v=0.4.0" />
+  <link rel="stylesheet" href="/static/styles.css?v=0.5.0" />
+  <link rel="stylesheet" href="/static/diagnostics.css?v=0.5.0" />
 </head>
 <body>
   <div class="ambient ambient-a"></div><div class="ambient ambient-b"></div>
@@ -19,12 +20,12 @@
         <label><span>Username</span><input id="setupUsername" autocomplete="username" required minlength="3" /></label>
         <label><span>Password</span><input id="setupPassword" type="password" autocomplete="new-password" required minlength="8" /></label>
         <label><span>Confirm password</span><input id="setupPassword2" type="password" autocomplete="new-password" required minlength="8" /></label>
-        <button class="primary full" type="submit">Create administrator</button>
+        <button class="button primary full" type="submit">Create administrator</button>
       </form>
       <form id="loginForm" class="form-stack hidden">
         <label><span>Username</span><input id="loginUsername" autocomplete="username" required /></label>
         <label><span>Password</span><input id="loginPassword" type="password" autocomplete="current-password" required /></label>
-        <button class="primary full" type="submit">Sign in</button>
+        <button class="button primary full" type="submit">Sign in</button>
       </form>
       <div id="authResult" class="notice hidden"></div>
     </div>
@@ -36,7 +37,7 @@
         <div class="auth-brand"><img src="/static/logo.svg" alt="ArrMedic" /><div><strong>ArrMedic</strong><span>Optional service setup</span></div></div>
         <span class="step-pill">OPTIONAL</span>
       </div>
-      <div class="wizard-title"><span class="kicker">CONNECT SERVICES</span><h1>Add your *Arr apps now or later.</h1><p>You can open ArrMedic immediately without adding Sonarr, Radarr or any other service.</p></div>
+      <div class="wizard-title"><span class="kicker">CONNECT SERVICES</span><h1>Add your *Arr apps now or later.</h1><p>Test a connection before saving it. You can also open the dashboard with zero services and add them whenever you want.</p></div>
       <div class="wizard-grid">
         <article class="surface">
           <form id="wizardServiceForm" class="form-stack">
@@ -65,44 +66,56 @@
         <a class="nav-item" href="#diagnostics" data-route="diagnostics"><span class="nav-icon">✦</span><span>Diagnostics</span></a>
         <a class="nav-item" href="#settings" data-route="settings"><span class="nav-icon">⚙</span><span>Settings</span></a>
       </nav>
-      <div class="side-footer"><div class="build"><span class="pulse"></span><span>ArrMedic</span><strong>v0.4.0</strong></div><button id="logoutButton" class="button ghost full">Sign out</button></div>
+      <div class="side-footer"><div class="build"><span class="pulse"></span><span>ArrMedic</span><strong>v0.5.0</strong></div><button id="logoutButton" class="button ghost full">Sign out</button></div>
     </aside>
 
     <main class="workspace">
       <section id="dashboardView" class="view active-view" data-view="dashboard">
-        <header class="topbar"><div><span class="kicker">COMMAND CENTER</span><h1>Stack overview</h1><p>One fast view of service health, diagnostics and next actions.</p></div><div class="top-actions"><span id="apiStatus" class="status-chip"><span class="pulse"></span>Checking API</span><button id="addMoreButton" class="button primary">+ Add service</button></div></header>
+        <header class="topbar"><div><span class="kicker">COMMAND CENTER</span><h1>Stack overview</h1><p>Live health, service state and troubleshooting signals across your media automation stack.</p></div><div class="top-actions"><span id="apiStatus" class="status-chip"><span class="pulse"></span>Checking API</span><button id="addMoreButton" class="button primary">+ Add service</button></div></header>
         <div class="metric-grid">
-          <article class="metric-card"><div class="metric-icon">♥</div><div><span>Health score</span><strong id="healthScore">—<small>/100</small></strong><p>Based on tested services</p></div></article>
+          <article class="metric-card"><div class="metric-icon">♥</div><div><span>Health score</span><strong id="healthScore">—<small>/100</small></strong><p>Real diagnostics score</p></div></article>
           <article class="metric-card"><div class="metric-icon">▦</div><div><span>Services</span><strong id="connectedCount">0</strong><p>Configured instances</p></div></article>
-          <article class="metric-card"><div class="metric-icon">✓</div><div><span>Online</span><strong id="onlineCount">0</strong><p>Passing connection test</p></div></article>
-          <article class="metric-card"><div class="metric-icon danger-icon">!</div><div><span>Issues</span><strong id="criticalCount">0</strong><p>Connection problems</p></div></article>
+          <article class="metric-card"><div class="metric-icon">✓</div><div><span>Online</span><strong id="onlineCount">0</strong><p>Passing API checks</p></div></article>
+          <article class="metric-card"><div class="metric-icon danger-icon">!</div><div><span>Issues</span><strong id="criticalCount">0</strong><p>Warnings and failures</p></div></article>
         </div>
         <div class="dashboard-grid">
-          <article class="surface services-panel"><div class="section-head"><div><span class="kicker">LIVE SERVICES</span><h2>Current status</h2></div><button id="refreshAllButton" class="button secondary small">Refresh all</button></div><div id="dashboardServiceList" class="service-table"></div></article>
-          <article class="surface activity-panel"><div class="section-head"><div><span class="kicker">QUICK ACTIONS</span><h2>Get started</h2></div></div><div class="quick-actions"><button class="quick-action" data-go="instances"><span>◇</span><div><strong>Manage instances</strong><small>Add, edit and test services</small></div></button><button class="quick-action" data-go="diagnostics"><span>✦</span><div><strong>Run diagnostics</strong><small>Open troubleshooting tools</small></div></button><button class="quick-action" data-go="settings"><span>⚙</span><div><strong>Review settings</strong><small>Runtime and security</small></div></button></div></article>
+          <article class="surface services-panel"><div class="section-head"><div><span class="kicker">LIVE SERVICES</span><h2>Current status</h2></div><button id="refreshAllButton" class="button secondary small">Run health scan</button></div><div id="dashboardServiceList" class="service-table"></div></article>
+          <article class="surface activity-panel"><div class="section-head"><div><span class="kicker">QUICK ACTIONS</span><h2>Tools</h2></div></div><div class="quick-actions"><button class="quick-action" data-go="instances"><span>◇</span><div><strong>Manage instances</strong><small>Add, edit and test services</small></div></button><button class="quick-action" data-go="diagnostics"><span>✦</span><div><strong>Run diagnostics</strong><small>Health, paths, queue and storage</small></div></button><button class="quick-action" data-go="settings"><span>⚙</span><div><strong>Review settings</strong><small>Runtime and persistence</small></div></button></div></article>
         </div>
-        <div class="doctor-grid"><article class="doctor-card"><span>PATH</span><strong>Path Doctor</strong><p>Detect broken mappings and inaccessible paths.</p><em>Roadmap</em></article><article class="doctor-card"><span>LINK</span><strong>Hardlink Doctor</strong><p>Check filesystem layout and hardlink support.</p><em>Roadmap</em></article><article class="doctor-card"><span>PERM</span><strong>Permission Doctor</strong><p>Explain ownership, UID/GID and write failures.</p><em>Roadmap</em></article><article class="doctor-card"><span>QUEUE</span><strong>Queue Doctor</strong><p>Translate failed imports into clear actions.</p><em>Roadmap</em></article></div>
+        <div class="doctor-grid">
+          <button class="doctor-card doctor-button" data-doctor="path"><span>PATH</span><strong>Path Doctor</strong><p>Check root paths, mappings and filesystem visibility.</p><em>ACTIVE</em></button>
+          <button class="doctor-card doctor-button" data-doctor="hardlink"><span>LINK</span><strong>Hardlink Doctor</strong><p>Detect filesystem boundaries that block hardlinks.</p><em>ACTIVE</em></button>
+          <button class="doctor-card doctor-button" data-doctor="permission"><span>PERM</span><strong>Permission Doctor</strong><p>Inspect ArrMedic path visibility and read access safely.</p><em>ACTIVE</em></button>
+          <button class="doctor-card doctor-button" data-doctor="queue"><span>QUEUE</span><strong>Queue Doctor</strong><p>Find blocked imports and extract useful error messages.</p><em>ACTIVE</em></button>
+        </div>
       </section>
 
       <section id="instancesView" class="view hidden" data-view="instances">
-        <header class="topbar"><div><span class="kicker">INSTANCES</span><h1>Service management</h1><p>Test, edit and remove every saved connection.</p></div><button id="instancesAddButton" class="button primary">+ Add service</button></header>
+        <header class="topbar"><div><span class="kicker">INSTANCES</span><h1>Service management</h1><p>Test, edit and remove every saved connection. Multiple instances of the same app are supported.</p></div><button id="instancesAddButton" class="button primary">+ Add service</button></header>
         <article class="surface"><div class="section-head"><div><span class="kicker">CONFIGURED</span><h2>All services</h2></div></div><div id="instanceList" class="service-table"></div></article>
       </section>
 
       <section id="diagnosticsView" class="view hidden" data-view="diagnostics">
-        <header class="topbar"><div><span class="kicker">DIAGNOSTICS</span><h1>Troubleshooting center</h1><p>Purpose-built checks for common media automation failures.</p></div></header>
-        <div class="diagnostic-grid"><article class="diagnostic-card"><div class="diag-badge">P</div><div><strong>Path Doctor</strong><p>Compare library, download and container paths.</p></div><span>Planned</span></article><article class="diagnostic-card"><div class="diag-badge">H</div><div><strong>Hardlink Doctor</strong><p>Validate same-filesystem and link capability.</p></div><span>Planned</span></article><article class="diagnostic-card"><div class="diag-badge">U</div><div><strong>Permission Doctor</strong><p>Check write access, ownership and UID/GID.</p></div><span>Planned</span></article><article class="diagnostic-card"><div class="diag-badge">Q</div><div><strong>Queue Doctor</strong><p>Decode import and queue failures.</p></div><span>Planned</span></article></div>
+        <header class="topbar"><div><span class="kicker">DIAGNOSTICS</span><h1>Troubleshooting center</h1><p>One scan checks API connectivity, application health, storage, queues, download clients, mappings and filesystem visibility.</p></div><button id="runDiagnosticsButton" class="button primary">Run full scan</button></header>
+        <div id="diagnosticSummary" class="diagnostic-summary"></div>
+        <div class="doctor-strip">
+          <div><span class="doctor-dot path"></span><strong>Path Doctor</strong><small>Root folders & mappings</small></div>
+          <div><span class="doctor-dot link"></span><strong>Hardlink Doctor</strong><small>Filesystem boundaries</small></div>
+          <div><span class="doctor-dot perm"></span><strong>Permission Doctor</strong><small>Container visibility</small></div>
+          <div><span class="doctor-dot queue"></span><strong>Queue Doctor</strong><small>Blocked imports</small></div>
+        </div>
+        <div id="diagnosticResults" class="diagnostic-results"><div class="diagnostic-empty surface"><span>✦</span><strong>Ready to scan</strong><p>Add services if you want, then run a full scan. ArrMedic can still be explored with no services configured.</p></div></div>
       </section>
 
       <section id="settingsView" class="view hidden" data-view="settings">
         <header class="topbar"><div><span class="kicker">SETTINGS</span><h1>Application settings</h1><p>Runtime, data persistence and security information.</p></div></header>
-        <div class="settings-grid"><article class="surface"><span class="kicker">RUNTIME</span><h2>Installation</h2><div class="setting-list"><div><span>Port</span><strong>7080</strong></div><div><span>Persistent data</span><strong>/config</strong></div><div><span>Version</span><strong>0.4.0</strong></div></div></article><article class="surface"><span class="kicker">SECURITY</span><h2>Protected by default</h2><p class="subtle">Admin passwords are hashed. Service API keys are encrypted at rest and are never displayed back in the UI.</p></article><article class="surface"><span class="kicker">STORAGE</span><h2>Bind mount</h2><p class="subtle">Recommended host path: <code>/opt/arrmedic/config</code>. Recreating the container keeps your configuration.</p></article></div>
+        <div class="settings-grid"><article class="surface"><span class="kicker">RUNTIME</span><h2>Installation</h2><div class="setting-list"><div><span>Port</span><strong>7080</strong></div><div><span>Persistent data</span><strong>/config</strong></div><div><span>Version</span><strong>0.5.0</strong></div></div></article><article class="surface"><span class="kicker">SECURITY</span><h2>Protected by default</h2><p class="subtle">Admin passwords are hashed. Service API keys are encrypted at rest and are never displayed back in the UI.</p></article><article class="surface"><span class="kicker">FILESYSTEM DIAGNOSTICS</span><h2>Optional media mounts</h2><p class="subtle">API diagnostics work without media mounts. To let Path/Permission/Hardlink Doctor inspect filesystem visibility, mount the same media paths into ArrMedic, preferably read-only.</p></article></div>
       </section>
     </main>
   </div>
 
   <div id="editModal" class="modal hidden"><div class="modal-card glass"><div class="section-head"><div><span class="kicker">EDIT SERVICE</span><h2>Update connection</h2></div><button id="closeEditModal" class="close-button">×</button></div><form id="editServiceForm" class="form-stack"><input id="editId" type="hidden" /><div class="two-col"><label><span>Service name</span><input id="editName" required /></label><label><span>Service</span><select id="editKind"><option value="sonarr">Sonarr</option><option value="radarr">Radarr</option><option value="prowlarr">Prowlarr</option><option value="lidarr">Lidarr</option><option value="readarr">Readarr</option><option value="whisparr">Whisparr</option></select></label></div><label><span>URL</span><input id="editUrl" type="url" required /></label><label><span>New API key <small>(blank keeps current)</small></span><input id="editApiKey" type="password" autocomplete="off" /></label><div id="editResult" class="notice hidden"></div><div class="action-row"><button type="button" id="cancelEdit" class="button secondary">Cancel</button><button type="submit" class="button primary">Save & test</button></div></form></div></div>
 
-  <script src="/static/app.js?v=0.4.0" defer></script>
+  <script src="/static/app.js?v=0.5.0" defer></script>
 </body>
 </html>
