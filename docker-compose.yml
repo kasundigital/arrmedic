@@ -1,6 +1,7 @@
 services:
   arrmedic:
     image: ghcr.io/kasundigital/arrmedic:latest
+    pull_policy: always
     container_name: arrmedic
     ports:
       - "7080:7080"
