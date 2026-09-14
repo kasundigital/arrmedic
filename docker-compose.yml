@@ -3,7 +3,7 @@ services:
     image: ghcr.io/kasundigital/arrmedic:latest
     container_name: arrmedic
     ports:
-      - "7080:8787"
+      - "7080:7080"
     volumes:
       - ./config:/config
       # Add your media root later when filesystem diagnostics are enabled.
