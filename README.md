@@ -6,52 +6,48 @@
 <p align="center"><strong>Your *Arr Stack Health Monitor</strong></p>
 <p align="center">Diagnose · Monitor · Understand · Fix</p>
 
-ArrMedic is an open-source diagnostics and troubleshooting dashboard for Sonarr, Radarr, Prowlarr, Lidarr and the wider self-hosted media automation stack.
+ArrMedic is a free, open-source diagnostics and troubleshooting dashboard for Sonarr, Radarr, Prowlarr, Lidarr, Readarr, Whisparr and the wider self-hosted media automation stack.
 
-> Status: early development. ArrMedic includes first-run admin setup, persistent multi-instance configuration, service connection testing and the compact web dashboard. Path, permission, hardlink, storage and queue diagnostics are being added next.
+> **Current release: v0.5.0** — persistent multi-instance setup, encrypted API keys, live health scoring, application health checks, storage warnings, queue diagnostics, download-client visibility, Prowlarr indexer checks, remote-path mapping visibility, and the first working Path / Permission / Hardlink / Queue doctors.
 
-## Why ArrMedic?
+## What ArrMedic does now
 
-Media automation failures often involve several services at once: download clients, *Arr apps, Docker mounts, filesystem permissions and storage. ArrMedic aims to explain the actual cause in one place instead of making users read logs across every container.
-
-Planned diagnostics include:
-
-- Multiple Sonarr and Radarr instances
-- API and service health checks
-- Path mapping analysis
-- Hardlink capability testing
-- UID/GID and permission checks
-- Storage and free-space warnings
-- Queue/import problem explanations
-- Prowlarr/indexer health
-- qBittorrent, SABnzbd and Transmission checks
-- Bazarr/subtitle diagnostics
-- Language/media stream inspection
-- Jellyfin/Plex compatibility checks
+- Add multiple instances of Sonarr, Radarr, Prowlarr, Lidarr, Readarr and Whisparr
+- Test every connection before saving it
+- Automatically detect the API generation used by each supported *Arr app
+- Encrypt API keys at rest
+- Run one full-stack health scan from the browser
+- Calculate a health score per service and for the whole stack
+- Read native *Arr application health warnings
+- Inspect root folders and free-space values
+- Flag low storage (under 10 GiB on a reported root folder)
+- Inspect queue/import state and surface useful error messages
+- Show configured download clients
+- Show remote-path mappings when exposed by the app
+- Check enabled Prowlarr indexers
+- Path Doctor: compare API paths with paths visible inside the ArrMedic container
+- Permission Doctor: safely report ArrMedic container read visibility without pretending to know another container's UID/GID state
+- Hardlink Doctor: detect when visible paths span filesystem/device boundaries that prevent hardlinks
+- Queue Doctor: identify blocked/failed queue items
+- Work normally even when no *Arr app has been added yet
 
 ## Docker
 
-The official image is published automatically to GitHub Container Registry for both `linux/amd64` and `linux/arm64`:
+The official multi-architecture image (`linux/amd64` and `linux/arm64`) is:
 
 ```text
 ghcr.io/kasundigital/arrmedic:latest
 ```
 
-ArrMedic uses port `7080` everywhere: application, container, Docker mapping, and browser access.
+ArrMedic uses port `7080` everywhere: application, container and browser.
 
-### Recommended: Docker run with persistent bind mount
+### Recommended Docker run
 
-ArrMedic stores the administrator account, encrypted service API keys and application database under `/config` inside the container. The recommended Docker installation permanently binds that directory to `/opt/arrmedic/config` on the host.
-
-Create the persistent directory once:
+ArrMedic stores the administrator account, encrypted service API keys and SQLite database under `/config` inside the container. Keep that directory on the host with a bind mount:
 
 ```bash
 sudo mkdir -p /opt/arrmedic/config
-```
 
-Pull and start ArrMedic:
-
-```bash
 docker pull ghcr.io/kasundigital/arrmedic:latest
 
 docker run -d \
@@ -62,23 +58,35 @@ docker run -d \
   ghcr.io/kasundigital/arrmedic:latest
 ```
 
-Your persistent ArrMedic data will remain on the host at:
-
-```text
-/opt/arrmedic/config
-```
-
-This data survives `docker stop`, `docker rm`, image updates and container recreation.
-
 Open:
 
 ```text
 http://SERVER-IP:7080
 ```
 
+The application can be installed and explored immediately. Adding an *Arr service is optional.
+
+### Optional: unlock deeper filesystem diagnostics
+
+API diagnostics do **not** require media mounts. Path Doctor, Permission Doctor and Hardlink Doctor become more useful when ArrMedic can see the same paths that the *Arr apps report.
+
+For example, if Sonarr/Radarr use `/data`:
+
+```bash
+docker run -d \
+  --name arrmedic \
+  -p 7080:7080 \
+  --mount type=bind,source=/opt/arrmedic/config,target=/config \
+  --mount type=bind,source=/data,target=/data,readonly \
+  --restart unless-stopped \
+  ghcr.io/kasundigital/arrmedic:latest
+```
+
+Read-only media mounts are recommended for diagnostics. ArrMedic v0.5 does not create test hardlinks or modify media files.
+
 ### Updating ArrMedic
 
-Because `/config` is bind-mounted to the host, you can safely replace the container:
+Your configuration survives container replacement because `/config` lives on the host:
 
 ```bash
 docker stop arrmedic
@@ -93,6 +101,8 @@ docker run -d \
   ghcr.io/kasundigital/arrmedic:latest
 ```
 
+If you use optional media mounts, include the same mounts again when recreating the container.
+
 ### Docker Compose
 
 ```yaml
@@ -105,15 +115,22 @@ services:
       - "7080:7080"
     volumes:
       - /opt/arrmedic/config:/config
+      # Optional filesystem diagnostics:
+      # - /data:/data:ro
     restart: unless-stopped
 ```
 
-Then run:
+## Diagnostic API
 
-```bash
-sudo mkdir -p /opt/arrmedic/config
-docker compose up -d
+Authenticated browser sessions can use:
+
+```text
+GET  /api/diagnostics/summary
+GET  /api/instances/{id}/diagnostics
+POST /api/instances/{id}/check
 ```
+
+The full diagnostics endpoint intentionally treats unsupported APIs as unavailable rather than as failures. For example, Prowlarr does not have the same root-folder/queue model as Sonarr or Radarr.
 
 ## Build from source
 
@@ -122,6 +139,7 @@ git clone https://github.com/kasundigital/arrmedic.git
 cd arrmedic
 docker build -t arrmedic:local .
 sudo mkdir -p /opt/arrmedic/config
+
 docker run -d \
   --name arrmedic \
   -p 7080:7080 \
@@ -138,17 +156,21 @@ pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 7080 --reload
 ```
 
-On Windows PowerShell, activate the virtual environment with:
+On Windows PowerShell:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
 ```
 
+## Next development
+
+The next planned layers include download-client-specific deep checks (qBittorrent/SABnzbd/Transmission), richer path mapping analysis, history/event correlation, Bazarr/subtitle diagnostics, media stream inspection, notifications, exportable diagnostic reports and guided fixes.
+
 ## Security
 
-ArrMedic should not require Docker socket access for normal use. If Docker-level diagnostics are introduced later, socket integration will be optional and documented separately.
+ArrMedic does not require Docker socket access for normal operation. API keys are encrypted in `/config`; passwords are hashed. Never commit passwords, API keys or `.env` files to the repository.
 
-Never commit API keys, passwords or `.env` files to the repository.
+Filesystem diagnostics are observational in v0.5. Read-only media mounts are sufficient and recommended.
 
 ## Contributing
 
