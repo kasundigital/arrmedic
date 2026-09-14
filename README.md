@@ -40,7 +40,7 @@ docker compose up -d --build
 Open:
 
 ```text
-http://SERVER-IP:8787
+http://SERVER-IP:7080
 ```
 
 The current development branch can be tested with:
@@ -50,13 +50,15 @@ git checkout feat/v0.1-foundation
 docker compose up -d --build
 ```
 
+Docker exposes ArrMedic on host port `7080` while the application listens on port `8787` inside the container.
+
 ## Run locally
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn app.main:app --host 0.0.0.0 --port 8787 --reload
+uvicorn app.main:app --host 0.0.0.0 --port 7080 --reload
 ```
 
 On Windows PowerShell, activate the virtual environment with:
