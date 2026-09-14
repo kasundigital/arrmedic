@@ -6,14 +6,14 @@
   <meta name="color-scheme" content="dark" />
   <title>ArrMedic Cleanup Scanner</title>
   <link rel="icon" href="/static/logo.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/static/styles.css?v=0.8.0" />
-  <link rel="stylesheet" href="/static/cleanup.css?v=0.8.0" />
+  <link rel="stylesheet" href="/static/styles.css?v=0.9.1" />
+  <link rel="stylesheet" href="/static/cleanup.css?v=0.9.1" />
 </head>
 <body>
   <main class="cleanup-shell">
     <header class="cleanup-head">
       <div>
-        <span class="kicker">LIBRARY CLEANUP · v0.8.0</span>
+        <span class="kicker">LIBRARY CLEANUP · v0.9.1</span>
         <h1>Cleanup Scanner</h1>
         <p>Scan selected Radarr and Sonarr instances for stale metadata records and items with no media files.</p>
       </div>
@@ -36,7 +36,7 @@
           <div><span>No media file</span><strong id="missingCount">0</strong></div>
           <div><span>Selected</span><strong id="selectedCount">0</strong></div>
         </div>
-        <p class="cleanup-note">Choose the safe action to remove only the Radarr/Sonarr record, or the danger action to also ask Radarr/Sonarr to permanently delete its managed files and folder from disk.</p>
+        <p class="cleanup-note"><strong>Safe removal</strong> can remove any selected Radarr/Sonarr record without touching media. <strong>Delete folder</strong> is restricted to items that Radarr/Sonarr currently reports as having no media files.</p>
       </article>
     </section>
 
@@ -51,10 +51,30 @@
         <div class="cleanup-actions">
           <label class="exclusion-toggle"><input id="addExclusion" type="checkbox" /> Add import exclusion</label>
           <button id="removeSelected" class="button primary" disabled>Remove from app only</button>
-          <button id="removeSelectedAndFiles" class="button danger-action" disabled>Remove + delete files/folder</button>
+          <button id="removeSelectedAndFiles" class="button danger-action" disabled>Delete missing item + folder</button>
         </div>
       </div>
-      <div class="destructive-note"><strong>Danger action:</strong> Radarr/Sonarr receives <code>deleteFiles=true</code>. Use it only when you really want the selected media folder/files permanently removed from disk.</div>
+      <div class="destructive-note"><strong>Safety rule:</strong> destructive cleanup is available only when every selected row is marked <strong>Missing</strong>. Before each delete, ArrMedic asks Radarr/Sonarr again and blocks the operation if media is present.</div>
+
+      <div id="cleanupProgress" class="cleanup-progress hidden" aria-live="polite">
+        <div class="cleanup-progress-head">
+          <div>
+            <span class="kicker">DELETE PROGRESS</span>
+            <strong id="cleanupProgressTitle">Preparing cleanup…</strong>
+            <small id="cleanupProgressCurrent">Waiting to start</small>
+          </div>
+          <button id="stopCleanup" class="button danger-action">Stop</button>
+        </div>
+        <div class="progress-track"><div id="cleanupProgressBar" class="progress-fill" style="width:0%"></div></div>
+        <div class="progress-stats">
+          <span><strong id="cleanupProgressPercent">0%</strong> complete</span>
+          <span><strong id="cleanupProgressDone">0</strong>/<span id="cleanupProgressTotal">0</span> processed</span>
+          <span><strong id="cleanupProgressRemoved">0</strong> removed</span>
+          <span><strong id="cleanupProgressFailed">0</strong> blocked/failed</span>
+        </div>
+        <p class="cleanup-progress-note">Stop prevents the next item from starting. A Radarr/Sonarr request already in progress may finish first.</p>
+      </div>
+
       <div class="cleanup-filter-row">
         <input id="cleanupSearch" type="search" placeholder="Search title, instance, ID or path…" />
         <select id="cleanupFilter"><option value="all">All candidates</option><option value="stale">Removed metadata</option><option value="missing">No media file</option><option value="both">Removed + no media</option></select>
@@ -67,6 +87,6 @@
       </div>
     </section>
   </main>
-  <script src="/static/cleanup.js?v=0.8.0" defer></script>
+  <script src="/static/cleanup.js?v=0.9.1" defer></script>
 </body>
 </html>

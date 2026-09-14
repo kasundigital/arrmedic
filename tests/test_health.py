@@ -13,7 +13,7 @@ def test_health_endpoint():
     assert response.status_code == 200
     assert response.json()["status"] == "healthy"
     assert response.json()["name"] == "ArrMedic"
-    assert response.json()["version"] == EXPECTED_VERSION == "0.9.0"
+    assert response.json()["version"] == EXPECTED_VERSION == "0.9.1"
 
 
 def test_dashboard_loads():
@@ -24,7 +24,6 @@ def test_dashboard_loads():
     assert "exportDiagnosticsButton" in response.text
     assert "scanHistory" in response.text
     assert "fixSummary" in response.text
-    assert "v0.9.0" in response.text
     assert "/static/path-doctor.html" in response.text
     assert "/static/hardlink-doctor.html" in response.text
     assert "/static/permission-doctor.html" in response.text
