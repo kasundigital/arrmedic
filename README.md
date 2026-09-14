@@ -29,12 +29,35 @@ Planned diagnostics include:
 - Language/media stream inspection
 - Jellyfin/Plex compatibility checks
 
-## Run with Docker Compose
+## Docker
+
+The official image is published automatically to GitHub Container Registry for both `linux/amd64` and `linux/arm64`:
+
+```text
+ghcr.io/kasundigital/arrmedic:latest
+```
+
+### Docker Compose
+
+Create a `docker-compose.yml`:
+
+```yaml
+services:
+  arrmedic:
+    image: ghcr.io/kasundigital/arrmedic:latest
+    container_name: arrmedic
+    ports:
+      - "7080:8787"
+    volumes:
+      - ./config:/config
+    restart: unless-stopped
+```
+
+Then run:
 
 ```bash
-git clone https://github.com/kasundigital/arrmedic.git
-cd arrmedic
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
 Open:
@@ -43,14 +66,29 @@ Open:
 http://SERVER-IP:7080
 ```
 
-The current development branch can be tested with:
+### Docker run
 
 ```bash
-git checkout feat/v0.1-foundation
-docker compose up -d --build
+docker pull ghcr.io/kasundigital/arrmedic:latest
+
+docker run -d \
+  --name arrmedic \
+  -p 7080:8787 \
+  -v ./config:/config \
+  --restart unless-stopped \
+  ghcr.io/kasundigital/arrmedic:latest
 ```
 
-Docker exposes ArrMedic on host port `7080` while the application listens on port `8787` inside the container.
+The host uses port `7080`; ArrMedic listens on port `8787` inside the container.
+
+## Build from source
+
+```bash
+git clone https://github.com/kasundigital/arrmedic.git
+cd arrmedic
+docker build -t arrmedic:local .
+docker run -d --name arrmedic -p 7080:8787 -v ./config:/config arrmedic:local
+```
 
 ## Run locally
 
@@ -96,6 +134,7 @@ API keys submitted to the current test endpoint are not persisted. Persistent en
 - [x] Sonarr/Radarr/Prowlarr/Lidarr connection test
 - [x] Docker + Compose
 - [x] CI smoke tests
+- [x] Automatic multi-architecture Docker publishing to GHCR
 - [ ] Persistent multi-instance configuration
 - [ ] Health score engine
 - [ ] Root-folder and storage overview
