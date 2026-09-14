@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ArrMedic</title>
+  <link rel="icon" href="/static/logo.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <img src="/static/logo.svg" alt="ArrMedic logo" />
+        <div>
+          <strong>ArrMedic</strong>
+          <span>Stack Health Monitor</span>
+        </div>
+      </div>
+      <nav>
+        <a class="active" href="#dashboard">Dashboard</a>
+        <a href="#instances">Instances</a>
+        <a href="#diagnostics">Diagnostics</a>
+        <a href="#settings">Settings</a>
+      </nav>
+      <div class="version">v0.1.0 foundation</div>
+    </aside>
+
+    <main>
+      <header>
+        <div>
+          <p class="eyebrow">ARRMEDIC</p>
+          <h1>Your media stack, explained.</h1>
+          <p class="muted">Connect an *Arr service and verify that ArrMedic can reach it.</p>
+        </div>
+        <div id="apiStatus" class="pill">Checking API…</div>
+      </header>
+
+      <section id="dashboard" class="grid stats">
+        <article class="card score-card">
+          <span class="label">Health score</span>
+          <div class="score">—<small>/100</small></div>
+          <p>No diagnostics have run yet.</p>
+        </article>
+        <article class="card">
+          <span class="label">Connected services</span>
+          <div class="metric" id="connectedCount">0</div>
+          <p>Sonarr, Radarr, Prowlarr and Lidarr supported first.</p>
+        </article>
+        <article class="card">
+          <span class="label">Critical issues</span>
+          <div class="metric">0</div>
+          <p>Path, permissions and hardlink checks are next.</p>
+        </article>
+      </section>
+
+      <section id="instances" class="card panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">INSTANCE TEST</p>
+            <h2>Connect your first service</h2>
+          </div>
+          <span class="badge">API key stays in this test request only</span>
+        </div>
+
+        <form id="instanceForm" class="form-grid">
+          <label>
+            Service
+            <select id="kind" required>
+              <option value="sonarr">Sonarr</option>
+              <option value="radarr">Radarr</option>
+              <option value="prowlarr">Prowlarr</option>
+              <option value="lidarr">Lidarr</option>
+            </select>
+          </label>
+          <label>
+            URL
+            <input id="url" type="url" placeholder="http://sonarr:8989" required />
+          </label>
+          <label class="wide">
+            API key
+            <input id="apiKey" type="password" placeholder="Paste API key" required autocomplete="off" />
+          </label>
+          <button type="submit" id="testButton">Test connection</button>
+        </form>
+
+        <div id="result" class="result hidden"></div>
+      </section>
+
+      <section id="diagnostics" class="card roadmap">
+        <p class="eyebrow">COMING NEXT</p>
+        <h2>Diagnostics that solve real *Arr problems</h2>
+        <div class="roadmap-grid">
+          <div><strong>Path Doctor</strong><span>Compare paths across download clients and *Arr apps.</span></div>
+          <div><strong>Hardlink Doctor</strong><span>Verify filesystems and perform a safe hardlink test.</span></div>
+          <div><strong>Permission Doctor</strong><span>Explain UID/GID and write-access failures.</span></div>
+          <div><strong>Queue Doctor</strong><span>Translate failed imports into human-readable fixes.</span></div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">ArrMedic logo</title>
+  <desc id="desc">A medical pulse crossing a compact server stack.</desc>
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#53e0a6"/>
+      <stop offset="1" stop-color="#85ffd0"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="30" fill="#101922" stroke="#263746" stroke-width="6"/>
+  <rect x="29" y="28" width="70" height="18" rx="6" fill="#1b2934" stroke="#405363" stroke-width="3"/>
+  <rect x="29" y="55" width="70" height="18" rx="6" fill="#1b2934" stroke="#405363" stroke-width="3"/>
+  <rect x="29" y="82" width="70" height="18" rx="6" fill="#1b2934" stroke="#405363" stroke-width="3"/>
+  <circle cx="39" cy="37" r="3" fill="#53e0a6"/>
+  <circle cx="39" cy="64" r="3" fill="#53e0a6"/>
+  <circle cx="39" cy="91" r="3" fill="#53e0a6"/>
+  <path d="M14 66h23l8-14 11 29 13-39 11 24h34" fill="none" stroke="url(#g)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

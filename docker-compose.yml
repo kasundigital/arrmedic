@@ -1,0 +1,11 @@
+services:
+  arrmedic:
+    build: .
+    container_name: arrmedic
+    ports:
+      - "7080:8787"
+    volumes:
+      - ./config:/config
+      # Add your media root later when filesystem diagnostics are enabled.
+      # - /mnt/media:/media:ro
+    restart: unless-stopped
