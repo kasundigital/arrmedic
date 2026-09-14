@@ -1,4 +1,4 @@
-from app.cleanup import extract_removed_ids
+from app.cleanup import extract_removed_ids, item_has_media
 
 
 def test_extract_removed_tmdb_ids():
@@ -14,3 +14,13 @@ def test_extract_removed_tvdb_ids():
 def test_unrelated_health_warning_is_ignored():
     health = [{"message": "No indexers available"}]
     assert extract_removed_ids(health, "radarr") == set()
+
+
+def test_radarr_media_guard():
+    assert item_has_media("radarr", {"hasFile": True}) is True
+    assert item_has_media("radarr", {"hasFile": False}) is False
+
+
+def test_sonarr_media_guard():
+    assert item_has_media("sonarr", {"statistics": {"episodeFileCount": 4}}) is True
+    assert item_has_media("sonarr", {"statistics": {"episodeFileCount": 0}}) is False
