@@ -26,9 +26,21 @@ DB_PATH = CONFIG_DIR / "arrmedic.db"
 KEY_PATH = CONFIG_DIR / "secret.key"
 SESSION_COOKIE = "arrmedic_session"
 SESSION_DAYS = 30
+APP_VERSION = "0.4.0"
 
-app = FastAPI(title="ArrMedic", version="0.3.0", description="Open-source diagnostics and health monitoring for the *Arr media stack.")
+app = FastAPI(title="ArrMedic", version=APP_VERSION, description="Open-source diagnostics and health monitoring for the *Arr media stack.")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+@app.middleware("http")
+async def prevent_stale_ui(request, call_next):
+    response = await call_next(request)
+    if request.url.path == "/" or request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
 
 ServiceKind = Literal["sonarr", "radarr", "prowlarr", "lidarr", "readarr", "whisparr"]
 
@@ -205,12 +217,12 @@ init_db()
 
 @app.get("/")
 async def dashboard() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+    return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"})
 
 
 @app.get("/api/health")
 async def health() -> dict:
-    return {"status": "healthy", "name": "ArrMedic", "version": "0.3.0"}
+    return {"status": "healthy", "name": "ArrMedic", "version": APP_VERSION}
 
 
 @app.get("/api/setup/status")
