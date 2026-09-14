@@ -8,7 +8,7 @@
 
 ArrMedic is an open-source diagnostics and troubleshooting dashboard for Sonarr, Radarr, Prowlarr, Lidarr and the wider self-hosted media automation stack.
 
-> Status: early v0.1 foundation. The current build includes the web dashboard, API health endpoint and live *Arr API connection testing. Path, permission, hardlink, storage and queue diagnostics are next.
+> Status: early development. ArrMedic includes first-run admin setup, persistent multi-instance configuration, service connection testing and the compact web dashboard. Path, permission, hardlink, storage and queue diagnostics are being added next.
 
 ## Why ArrMedic?
 
@@ -39,36 +39,17 @@ ghcr.io/kasundigital/arrmedic:latest
 
 ArrMedic uses port `7080` everywhere: application, container, Docker mapping, and browser access.
 
-### Docker Compose
+### Recommended: Docker run with persistent bind mount
 
-Create a `docker-compose.yml`:
+ArrMedic stores the administrator account, encrypted service API keys and application database under `/config` inside the container. The recommended Docker installation permanently binds that directory to `/opt/arrmedic/config` on the host.
 
-```yaml
-services:
-  arrmedic:
-    image: ghcr.io/kasundigital/arrmedic:latest
-    container_name: arrmedic
-    ports:
-      - "7080:7080"
-    volumes:
-      - ./config:/config
-    restart: unless-stopped
-```
-
-Then run:
+Create the persistent directory once:
 
 ```bash
-docker compose pull
-docker compose up -d
+sudo mkdir -p /opt/arrmedic/config
 ```
 
-Open:
-
-```text
-http://SERVER-IP:7080
-```
-
-### Docker run
+Pull and start ArrMedic:
 
 ```bash
 docker pull ghcr.io/kasundigital/arrmedic:latest
@@ -76,9 +57,62 @@ docker pull ghcr.io/kasundigital/arrmedic:latest
 docker run -d \
   --name arrmedic \
   -p 7080:7080 \
-  -v ./config:/config \
+  --mount type=bind,source=/opt/arrmedic/config,target=/config \
   --restart unless-stopped \
   ghcr.io/kasundigital/arrmedic:latest
+```
+
+Your persistent ArrMedic data will remain on the host at:
+
+```text
+/opt/arrmedic/config
+```
+
+This data survives `docker stop`, `docker rm`, image updates and container recreation.
+
+Open:
+
+```text
+http://SERVER-IP:7080
+```
+
+### Updating ArrMedic
+
+Because `/config` is bind-mounted to the host, you can safely replace the container:
+
+```bash
+docker stop arrmedic
+docker rm arrmedic
+docker pull ghcr.io/kasundigital/arrmedic:latest
+
+docker run -d \
+  --name arrmedic \
+  -p 7080:7080 \
+  --mount type=bind,source=/opt/arrmedic/config,target=/config \
+  --restart unless-stopped \
+  ghcr.io/kasundigital/arrmedic:latest
+```
+
+### Docker Compose
+
+```yaml
+services:
+  arrmedic:
+    image: ghcr.io/kasundigital/arrmedic:latest
+    container_name: arrmedic
+    pull_policy: always
+    ports:
+      - "7080:7080"
+    volumes:
+      - /opt/arrmedic/config:/config
+    restart: unless-stopped
+```
+
+Then run:
+
+```bash
+sudo mkdir -p /opt/arrmedic/config
+docker compose up -d
 ```
 
 ## Build from source
@@ -87,7 +121,12 @@ docker run -d \
 git clone https://github.com/kasundigital/arrmedic.git
 cd arrmedic
 docker build -t arrmedic:local .
-docker run -d --name arrmedic -p 7080:7080 -v ./config:/config arrmedic:local
+sudo mkdir -p /opt/arrmedic/config
+docker run -d \
+  --name arrmedic \
+  -p 7080:7080 \
+  --mount type=bind,source=/opt/arrmedic/config,target=/config \
+  arrmedic:local
 ```
 
 ## Run locally
@@ -104,54 +143,6 @@ On Windows PowerShell, activate the virtual environment with:
 ```powershell
 .\.venv\Scripts\Activate.ps1
 ```
-
-## Current API
-
-```text
-GET  /api/health
-POST /api/instances/test
-```
-
-Example connection-test body:
-
-```json
-{
-  "kind": "sonarr",
-  "url": "http://sonarr:8989",
-  "api_key": "YOUR_API_KEY"
-}
-```
-
-API keys submitted to the current test endpoint are not persisted. Persistent encrypted instance configuration will be added before stored connections are introduced.
-
-## Development roadmap
-
-### v0.1
-
-- [x] FastAPI foundation
-- [x] Responsive web dashboard
-- [x] Health endpoint
-- [x] Sonarr/Radarr/Prowlarr/Lidarr connection test
-- [x] Docker + Compose
-- [x] CI smoke tests
-- [x] Automatic multi-architecture Docker publishing to GHCR
-- [ ] Persistent multi-instance configuration
-- [ ] Health score engine
-- [ ] Root-folder and storage overview
-
-### v0.2
-
-- [ ] Path Doctor
-- [ ] Hardlink Doctor
-- [ ] Permission Doctor
-- [ ] Queue Doctor
-
-### v0.3+
-
-- [ ] Download clients and Prowlarr
-- [ ] Bazarr and language scanner
-- [ ] Plex/Jellyfin media compatibility
-- [ ] Notifications and safe guided fixes
 
 ## Security
 
