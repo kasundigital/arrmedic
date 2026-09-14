@@ -8,88 +8,108 @@
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
-  <div class="shell">
-    <aside class="sidebar">
-      <div class="brand">
-        <img src="/static/logo.svg" alt="ArrMedic logo" />
-        <div>
-          <strong>ArrMedic</strong>
-          <span>Stack Health Monitor</span>
-        </div>
+  <div id="authScreen" class="auth-screen hidden">
+    <div class="auth-card">
+      <img src="/static/logo.svg" class="auth-logo" alt="ArrMedic logo" />
+      <p class="eyebrow">ARRMEDIC</p>
+      <h1 id="authTitle">Welcome to ArrMedic</h1>
+      <p id="authSubtitle" class="muted">Create the administrator account for this ArrMedic installation.</p>
+
+      <form id="setupForm" class="stack-form hidden">
+        <label>Username<input id="setupUsername" autocomplete="username" required minlength="3" /></label>
+        <label>Password<input id="setupPassword" type="password" autocomplete="new-password" required minlength="8" /></label>
+        <label>Confirm password<input id="setupPassword2" type="password" autocomplete="new-password" required minlength="8" /></label>
+        <button type="submit">Create administrator</button>
+      </form>
+
+      <form id="loginForm" class="stack-form hidden">
+        <label>Username<input id="loginUsername" autocomplete="username" required /></label>
+        <label>Password<input id="loginPassword" type="password" autocomplete="current-password" required /></label>
+        <button type="submit">Sign in</button>
+      </form>
+      <div id="authResult" class="result hidden"></div>
+    </div>
+  </div>
+
+  <div id="wizardScreen" class="wizard-screen hidden">
+    <div class="wizard-card">
+      <div class="wizard-head">
+        <div class="brand"><img src="/static/logo.svg" alt="ArrMedic logo" /><div><strong>ArrMedic</strong><span>Initial setup</span></div></div>
+        <span class="badge">Step 2 of 2</span>
       </div>
+      <p class="eyebrow">ADD YOUR SERVICES</p>
+      <h1>Connect your media stack.</h1>
+      <p class="muted">Add as many services as you need. Test each connection first, then save it. The form stays here so you can immediately add the next service.</p>
+
+      <div class="wizard-layout">
+        <section class="card compact-card">
+          <form id="wizardServiceForm" class="stack-form">
+            <label>Service name<input id="wizardName" placeholder="Sonarr Main" required /></label>
+            <label>Service
+              <select id="wizardKind" required>
+                <option value="sonarr">Sonarr</option>
+                <option value="radarr">Radarr</option>
+                <option value="prowlarr">Prowlarr</option>
+                <option value="lidarr">Lidarr</option>
+                <option value="readarr">Readarr</option>
+                <option value="whisparr">Whisparr</option>
+              </select>
+            </label>
+            <label>URL<input id="wizardUrl" type="url" placeholder="http://sonarr:8989" required /></label>
+            <label>API key<input id="wizardApiKey" type="password" placeholder="Paste API key" required autocomplete="off" /></label>
+            <div class="button-row">
+              <button type="button" id="wizardTest" class="secondary">Test connection</button>
+              <button type="submit" id="wizardAdd" disabled>Add service</button>
+            </div>
+          </form>
+          <div id="wizardResult" class="result hidden"></div>
+        </section>
+
+        <section class="card compact-card">
+          <div class="section-heading"><div><p class="eyebrow">ADDED SERVICES</p><h2>Your stack</h2></div><span id="wizardCount" class="pill">0 added</span></div>
+          <div id="wizardServices" class="service-list empty-state">No services added yet.</div>
+        </section>
+      </div>
+
+      <div class="wizard-footer">
+        <span class="muted">You can add more services later from Instances.</span>
+        <button id="finishWizard" disabled>Finish setup</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="appShell" class="shell hidden">
+    <aside class="sidebar">
+      <div class="brand"><img src="/static/logo.svg" alt="ArrMedic logo" /><div><strong>ArrMedic</strong><span>Stack Health Monitor</span></div></div>
       <nav>
         <a class="active" href="#dashboard">Dashboard</a>
         <a href="#instances">Instances</a>
         <a href="#diagnostics">Diagnostics</a>
         <a href="#settings">Settings</a>
       </nav>
-      <div class="version">v0.1.0 foundation</div>
+      <button id="logoutButton" class="ghost-button">Sign out</button>
+      <div class="version">v0.2.0</div>
     </aside>
 
     <main>
       <header>
-        <div>
-          <p class="eyebrow">ARRMEDIC</p>
-          <h1>Your media stack, explained.</h1>
-          <p class="muted">Connect an *Arr service and verify that ArrMedic can reach it.</p>
-        </div>
+        <div><p class="eyebrow">ARRMEDIC</p><h1>Your media stack, explained.</h1><p class="muted">Monitor every connected *Arr service from one place.</p></div>
         <div id="apiStatus" class="pill">Checking API…</div>
       </header>
 
       <section id="dashboard" class="grid stats">
-        <article class="card score-card">
-          <span class="label">Health score</span>
-          <div class="score">—<small>/100</small></div>
-          <p>No diagnostics have run yet.</p>
-        </article>
-        <article class="card">
-          <span class="label">Connected services</span>
-          <div class="metric" id="connectedCount">0</div>
-          <p>Sonarr, Radarr, Prowlarr and Lidarr supported first.</p>
-        </article>
-        <article class="card">
-          <span class="label">Critical issues</span>
-          <div class="metric">0</div>
-          <p>Path, permissions and hardlink checks are next.</p>
-        </article>
+        <article class="card score-card"><span class="label">Health score</span><div class="score">—<small>/100</small></div><p>Diagnostics are being built next.</p></article>
+        <article class="card"><span class="label">Connected services</span><div class="metric" id="connectedCount">0</div><p>All saved services in this ArrMedic installation.</p></article>
+        <article class="card"><span class="label">Critical issues</span><div class="metric">0</div><p>Path, permissions and hardlink checks are next.</p></article>
       </section>
 
       <section id="instances" class="card panel">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">INSTANCE TEST</p>
-            <h2>Connect your first service</h2>
-          </div>
-          <span class="badge">API key stays in this test request only</span>
-        </div>
-
-        <form id="instanceForm" class="form-grid">
-          <label>
-            Service
-            <select id="kind" required>
-              <option value="sonarr">Sonarr</option>
-              <option value="radarr">Radarr</option>
-              <option value="prowlarr">Prowlarr</option>
-              <option value="lidarr">Lidarr</option>
-            </select>
-          </label>
-          <label>
-            URL
-            <input id="url" type="url" placeholder="http://sonarr:8989" required />
-          </label>
-          <label class="wide">
-            API key
-            <input id="apiKey" type="password" placeholder="Paste API key" required autocomplete="off" />
-          </label>
-          <button type="submit" id="testButton">Test connection</button>
-        </form>
-
-        <div id="result" class="result hidden"></div>
+        <div class="section-heading"><div><p class="eyebrow">INSTANCES</p><h2>Connected services</h2></div><button id="addMoreButton" class="small-button">+ Add service</button></div>
+        <div id="instanceList" class="service-list"></div>
       </section>
 
       <section id="diagnostics" class="card roadmap">
-        <p class="eyebrow">COMING NEXT</p>
-        <h2>Diagnostics that solve real *Arr problems</h2>
+        <p class="eyebrow">COMING NEXT</p><h2>Diagnostics that solve real *Arr problems</h2>
         <div class="roadmap-grid">
           <div><strong>Path Doctor</strong><span>Compare paths across download clients and *Arr apps.</span></div>
           <div><strong>Hardlink Doctor</strong><span>Verify filesystems and perform a safe hardlink test.</span></div>
@@ -99,6 +119,7 @@
       </section>
     </main>
   </div>
+
   <script src="/static/app.js"></script>
 </body>
 </html>
