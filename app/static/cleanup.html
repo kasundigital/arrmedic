@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>ArrMedic Cleanup Scanner</title>
+  <link rel="icon" href="/static/logo.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/static/styles.css?v=0.7.0" />
+  <link rel="stylesheet" href="/static/cleanup.css?v=0.7.0" />
+</head>
+<body>
+  <main class="cleanup-shell">
+    <header class="cleanup-head">
+      <div>
+        <span class="kicker">LIBRARY CLEANUP</span>
+        <h1>Cleanup Scanner</h1>
+        <p>Scan selected Radarr and Sonarr instances for stale metadata records and items with no media files.</p>
+      </div>
+      <a class="button secondary" href="/#dashboard">← Back to ArrMedic</a>
+    </header>
+
+    <section class="cleanup-grid">
+      <article class="surface cleanup-selector">
+        <div class="section-head"><div><span class="kicker">STEP 1</span><h2>Select instances</h2></div><button id="selectAllInstances" class="button ghost small">Select all</button></div>
+        <div id="instanceChoices" class="instance-choice-list"><div class="empty-mini">Loading instances…</div></div>
+        <button id="scanCleanup" class="button primary full" disabled>Scan selected instances</button>
+        <div id="scanNotice" class="notice hidden"></div>
+      </article>
+
+      <article class="surface cleanup-summary">
+        <div class="section-head"><div><span class="kicker">RESULTS</span><h2>Cleanup summary</h2></div></div>
+        <div class="cleanup-stats">
+          <div><span>Candidates</span><strong id="candidateCount">0</strong></div>
+          <div><span>Removed metadata</span><strong id="staleCount">0</strong></div>
+          <div><span>No media file</span><strong id="missingCount">0</strong></div>
+          <div><span>Selected</span><strong id="selectedCount">0</strong></div>
+        </div>
+        <p class="cleanup-note">Removal is safe by default: ArrMedic removes the Radarr/Sonarr database record only. It never deletes media files from disk.</p>
+      </article>
+    </section>
+
+    <section id="resultsPanel" class="surface cleanup-results hidden">
+      <div class="cleanup-toolbar">
+        <div>
+          <button id="selectAllRows" class="button secondary small">Select all</button>
+          <button id="selectMissingRows" class="button secondary small">Select missing media only</button>
+          <button id="selectStaleRows" class="button secondary small">Select removed metadata only</button>
+          <button id="clearRows" class="button ghost small">Clear selection</button>
+        </div>
+        <div class="cleanup-actions">
+          <label class="exclusion-toggle"><input id="addExclusion" type="checkbox" /> Add import exclusion</label>
+          <button id="removeSelected" class="button primary" disabled>Remove selected from app</button>
+        </div>
+      </div>
+      <div class="cleanup-filter-row">
+        <input id="cleanupSearch" type="search" placeholder="Search title, instance, ID or path…" />
+        <select id="cleanupFilter"><option value="all">All candidates</option><option value="stale">Removed metadata</option><option value="missing">No media file</option><option value="both">Removed + no media</option></select>
+      </div>
+      <div class="cleanup-table-wrap">
+        <table class="cleanup-table">
+          <thead><tr><th></th><th>Item</th><th>Instance</th><th>Metadata</th><th>Media</th><th>Path</th></tr></thead>
+          <tbody id="cleanupRows"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+  <script src="/static/cleanup.js?v=0.7.0" defer></script>
+</body>
+</html>

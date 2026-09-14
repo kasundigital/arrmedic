@@ -148,9 +148,12 @@
     ensureModal();
     const issueMetric=byId('criticalCount')?.closest('.metric-card');
     if(issueMetric){issueMetric.classList.add('metric-clickable');issueMetric.setAttribute('role','button');issueMetric.setAttribute('tabindex','0');issueMetric.setAttribute('aria-label','Open issue center');issueMetric.addEventListener('click',openIssueCenter);issueMetric.addEventListener('keydown',(e)=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openIssueCenter();}});}
+    const quickActions=document.querySelector('.quick-actions');
+    if(quickActions&&!document.querySelector('[data-cleanup-scanner]'))quickActions.insertAdjacentHTML('beforeend','<button class="quick-action" data-cleanup-scanner><span>⌫</span><div><strong>Cleanup scanner</strong><small>Find stale metadata and missing-media records</small></div></button>');
   });
 
   document.addEventListener('click',async(e)=>{
+    const cleanup=e.target.closest('[data-cleanup-scanner]');if(cleanup){window.location.href='/static/cleanup.html';return;}
     const close=e.target.closest('#closeIssueCenter');if(close)return closeIssueCenter();
     const closeF=e.target.closest('#closeIssueFix');if(closeF)return closeFix();
     if(e.target===byId('issueCenterModal'))return closeIssueCenter();

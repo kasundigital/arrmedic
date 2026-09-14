@@ -13,4 +13,4 @@ COPY app ./app
 
 EXPOSE 7080
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7080"]
+CMD ["uvicorn", "app.bootstrap:app", "--host", "0.0.0.0", "--port", "7080"]
