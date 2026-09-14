@@ -6,8 +6,8 @@
   <meta name="color-scheme" content="dark" />
   <title>ArrMedic</title>
   <link rel="icon" href="/static/logo.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/static/styles.css?v=0.5.0" />
-  <link rel="stylesheet" href="/static/diagnostics.css?v=0.5.0" />
+  <link rel="stylesheet" href="/static/styles.css?v=0.6.0" />
+  <link rel="stylesheet" href="/static/diagnostics.css?v=0.6.0" />
 </head>
 <body>
   <div class="ambient ambient-a"></div><div class="ambient ambient-b"></div>
@@ -66,21 +66,21 @@
         <a class="nav-item" href="#diagnostics" data-route="diagnostics"><span class="nav-icon">✦</span><span>Diagnostics</span></a>
         <a class="nav-item" href="#settings" data-route="settings"><span class="nav-icon">⚙</span><span>Settings</span></a>
       </nav>
-      <div class="side-footer"><div class="build"><span class="pulse"></span><span>ArrMedic</span><strong>v0.5.0</strong></div><button id="logoutButton" class="button ghost full">Sign out</button></div>
+      <div class="side-footer"><div class="build"><span class="pulse"></span><span>ArrMedic</span><strong>v0.6.0</strong></div><button id="logoutButton" class="button ghost full">Sign out</button></div>
     </aside>
 
     <main class="workspace">
       <section id="dashboardView" class="view active-view" data-view="dashboard">
         <header class="topbar"><div><span class="kicker">COMMAND CENTER</span><h1>Stack overview</h1><p>Live health, service state and troubleshooting signals across your media automation stack.</p></div><div class="top-actions"><span id="apiStatus" class="status-chip"><span class="pulse"></span>Checking API</span><button id="addMoreButton" class="button primary">+ Add service</button></div></header>
         <div class="metric-grid">
-          <article class="metric-card"><div class="metric-icon">♥</div><div><span>Health score</span><strong id="healthScore">—<small>/100</small></strong><p>Real diagnostics score</p></div></article>
+          <article class="metric-card"><div class="metric-icon">♥</div><div><span>Health score</span><strong id="healthScore">—<small>/100</small></strong><p>Latest saved full scan</p></div></article>
           <article class="metric-card"><div class="metric-icon">▦</div><div><span>Services</span><strong id="connectedCount">0</strong><p>Configured instances</p></div></article>
           <article class="metric-card"><div class="metric-icon">✓</div><div><span>Online</span><strong id="onlineCount">0</strong><p>Passing API checks</p></div></article>
           <article class="metric-card"><div class="metric-icon danger-icon">!</div><div><span>Issues</span><strong id="criticalCount">0</strong><p>Warnings and failures</p></div></article>
         </div>
         <div class="dashboard-grid">
-          <article class="surface services-panel"><div class="section-head"><div><span class="kicker">LIVE SERVICES</span><h2>Current status</h2></div><button id="refreshAllButton" class="button secondary small">Run health scan</button></div><div id="dashboardServiceList" class="service-table"></div></article>
-          <article class="surface activity-panel"><div class="section-head"><div><span class="kicker">QUICK ACTIONS</span><h2>Tools</h2></div></div><div class="quick-actions"><button class="quick-action" data-go="instances"><span>◇</span><div><strong>Manage instances</strong><small>Add, edit and test services</small></div></button><button class="quick-action" data-go="diagnostics"><span>✦</span><div><strong>Run diagnostics</strong><small>Health, paths, queue and storage</small></div></button><button class="quick-action" data-go="settings"><span>⚙</span><div><strong>Review settings</strong><small>Runtime and persistence</small></div></button></div></article>
+          <article class="surface services-panel"><div class="section-head"><div><span class="kicker">LIVE SERVICES</span><h2>Current status</h2></div><button id="refreshAllButton" class="button secondary small">Run & save scan</button></div><div id="dashboardServiceList" class="service-table"></div></article>
+          <article class="surface activity-panel"><div class="section-head"><div><span class="kicker">QUICK ACTIONS</span><h2>Tools</h2></div></div><div class="quick-actions"><button class="quick-action" data-go="instances"><span>◇</span><div><strong>Manage instances</strong><small>Add, edit and test services</small></div></button><button class="quick-action" data-go="diagnostics"><span>✦</span><div><strong>Guided diagnostics</strong><small>Find issues and recommended fixes</small></div></button><button class="quick-action" data-go="settings"><span>⚙</span><div><strong>Review settings</strong><small>Runtime and persistence</small></div></button></div></article>
         </div>
         <div class="doctor-grid">
           <button class="doctor-card doctor-button" data-doctor="path"><span>PATH</span><strong>Path Doctor</strong><p>Check root paths, mappings and filesystem visibility.</p><em>ACTIVE</em></button>
@@ -96,7 +96,7 @@
       </section>
 
       <section id="diagnosticsView" class="view hidden" data-view="diagnostics">
-        <header class="topbar"><div><span class="kicker">DIAGNOSTICS</span><h1>Troubleshooting center</h1><p>One scan checks API connectivity, application health, storage, queues, download clients, mappings and filesystem visibility.</p></div><button id="runDiagnosticsButton" class="button primary">Run full scan</button></header>
+        <header class="topbar"><div><span class="kicker">DIAGNOSTICS</span><h1>Guided troubleshooting</h1><p>Scan the stack, correlate recent failures and follow prioritized fixes rather than reading every log manually.</p></div><div class="top-actions"><button id="exportDiagnosticsButton" class="button secondary" disabled>Export JSON</button><button id="runDiagnosticsButton" class="button primary">Run full scan</button></div></header>
         <div id="diagnosticSummary" class="diagnostic-summary"></div>
         <div class="doctor-strip">
           <div><span class="doctor-dot path"></span><strong>Path Doctor</strong><small>Root folders & mappings</small></div>
@@ -104,18 +104,22 @@
           <div><span class="doctor-dot perm"></span><strong>Permission Doctor</strong><small>Container visibility</small></div>
           <div><span class="doctor-dot queue"></span><strong>Queue Doctor</strong><small>Blocked imports</small></div>
         </div>
+        <div class="diagnostic-meta-grid">
+          <article class="surface scan-history-card"><div class="section-head"><div><span class="kicker">SCAN HISTORY</span><h2>Recent health trend</h2></div><span id="scanHistoryCount" class="counter">0</span></div><div id="scanHistory" class="scan-history"><div class="empty-mini">No saved scans yet.</div></div></article>
+          <article class="surface fix-summary-card"><div class="section-head"><div><span class="kicker">GUIDED FIXES</span><h2>Action plan</h2></div><span id="fixCount" class="counter">0</span></div><div id="fixSummary" class="fix-summary"><div class="empty-mini">Run a scan to generate prioritized fixes.</div></div></article>
+        </div>
         <div id="diagnosticResults" class="diagnostic-results"><div class="diagnostic-empty surface"><span>✦</span><strong>Ready to scan</strong><p>Add services if you want, then run a full scan. ArrMedic can still be explored with no services configured.</p></div></div>
       </section>
 
       <section id="settingsView" class="view hidden" data-view="settings">
         <header class="topbar"><div><span class="kicker">SETTINGS</span><h1>Application settings</h1><p>Runtime, data persistence and security information.</p></div></header>
-        <div class="settings-grid"><article class="surface"><span class="kicker">RUNTIME</span><h2>Installation</h2><div class="setting-list"><div><span>Port</span><strong>7080</strong></div><div><span>Persistent data</span><strong>/config</strong></div><div><span>Version</span><strong>0.5.0</strong></div></div></article><article class="surface"><span class="kicker">SECURITY</span><h2>Protected by default</h2><p class="subtle">Admin passwords are hashed. Service API keys are encrypted at rest and are never displayed back in the UI.</p></article><article class="surface"><span class="kicker">FILESYSTEM DIAGNOSTICS</span><h2>Optional media mounts</h2><p class="subtle">API diagnostics work without media mounts. To let Path/Permission/Hardlink Doctor inspect filesystem visibility, mount the same media paths into ArrMedic, preferably read-only.</p></article></div>
+        <div class="settings-grid"><article class="surface"><span class="kicker">RUNTIME</span><h2>Installation</h2><div class="setting-list"><div><span>Port</span><strong>7080</strong></div><div><span>Persistent data</span><strong>/config</strong></div><div><span>Version</span><strong>0.6.0</strong></div></div></article><article class="surface"><span class="kicker">SECURITY</span><h2>Protected by default</h2><p class="subtle">Admin passwords are hashed. Service API keys are encrypted at rest and are never displayed back in the UI.</p></article><article class="surface"><span class="kicker">SCAN STORAGE</span><h2>Local history</h2><p class="subtle">ArrMedic keeps the latest 50 full diagnostic scans in the persistent SQLite database so health trends survive browser and container restarts.</p></article><article class="surface"><span class="kicker">FILESYSTEM DIAGNOSTICS</span><h2>Optional media mounts</h2><p class="subtle">API diagnostics work without media mounts. For deeper Path/Permission/Hardlink checks, mount the same media paths into ArrMedic, preferably read-only.</p></article></div>
       </section>
     </main>
   </div>
 
   <div id="editModal" class="modal hidden"><div class="modal-card glass"><div class="section-head"><div><span class="kicker">EDIT SERVICE</span><h2>Update connection</h2></div><button id="closeEditModal" class="close-button">×</button></div><form id="editServiceForm" class="form-stack"><input id="editId" type="hidden" /><div class="two-col"><label><span>Service name</span><input id="editName" required /></label><label><span>Service</span><select id="editKind"><option value="sonarr">Sonarr</option><option value="radarr">Radarr</option><option value="prowlarr">Prowlarr</option><option value="lidarr">Lidarr</option><option value="readarr">Readarr</option><option value="whisparr">Whisparr</option></select></label></div><label><span>URL</span><input id="editUrl" type="url" required /></label><label><span>New API key <small>(blank keeps current)</small></span><input id="editApiKey" type="password" autocomplete="off" /></label><div id="editResult" class="notice hidden"></div><div class="action-row"><button type="button" id="cancelEdit" class="button secondary">Cancel</button><button type="submit" class="button primary">Save & test</button></div></form></div></div>
 
-  <script src="/static/app.js?v=0.5.0" defer></script>
+  <script src="/static/app.js?v=0.6.0" defer></script>
 </body>
 </html>
