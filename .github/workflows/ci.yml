@@ -28,7 +28,9 @@ jobs:
         run: pytest -q
 
       - name: Validate browser JavaScript
-        run: node --check app/static/app.js
+        run: |
+          node --check app/static/app.js
+          node --check app/static/issue-center.js
 
       - name: Build Docker image
         run: docker build -t arrmedic:ci .
