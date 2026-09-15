@@ -32,6 +32,8 @@ jobs:
           node --check app/static/app.js
           node --check app/static/issue-center.js
           node --check app/static/cleanup.js
+          node --check app/static/doctor.js
+          node --check app/static/download-client-doctor.js
 
       - name: Build Docker image
         run: docker build -t arrmedic:ci .
