@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, Cookie, HTTPException
 from pydantic import BaseModel, Field
 
+from .hostfs import host_root
 from .main import SESSION_COOKIE, db, local_path_info, require_user
 
 router = APIRouter(prefix="/api/doctors", tags=["doctors"])
@@ -41,10 +42,11 @@ def mapping_status(row) -> dict:
     same_text = os.path.normpath(host_path) == os.path.normpath(container_path)
     if info.get("visible"):
         status = "ok"
-        message = "Container path is visible to ArrMedic."
+        checked = info.get("checkedPath") or container_path
+        message = f"Path is visible to ArrMedic through {checked}."
     else:
         status = "missing"
-        message = "Container path is not visible to ArrMedic. Add the host path as a Docker bind mount using this container path."
+        message = "Path is not visible to ArrMedic. Confirm the host root is mounted read-only at /host or review the saved Host ↔ Container mapping."
     return {
         "id": row["id"],
         "name": row["name"],
@@ -102,11 +104,15 @@ async def delete_mapping(mapping_id: int, arrmedic_session: str | None = Cookie(
 async def doctor_runtime(arrmedic_session: str | None = Cookie(default=None, alias=SESSION_COOKIE)):
     require_user(arrmedic_session)
     cwd = Path.cwd()
+    root = host_root()
     return {
         "workingDirectory": str(cwd),
         "uid": os.getuid() if hasattr(os, "getuid") else None,
         "gid": os.getgid() if hasattr(os, "getgid") else None,
+        "hostRoot": str(root),
+        "hostRootVisible": root.exists(),
+        "hostRootRecommendedMount": "--mount type=bind,source=/,target=/host,readonly",
         "dockerSocketVisible": Path("/var/run/docker.sock").exists(),
         "dockerSocketEnabled": False,
-        "message": "Docker socket access is intentionally disabled by default. ArrMedic uses safe manual path mappings unless an optional Docker integration is added later.",
+        "message": "For full filesystem diagnostics, mount host / read-only at /host. Docker socket access remains disabled by default.",
     }

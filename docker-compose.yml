@@ -5,8 +5,11 @@ services:
     container_name: arrmedic
     ports:
       - "7080:7080"
+    environment:
+      - ARRMEDIC_HOST_ROOT=/host
     volumes:
       - ./config:/config
-      # Add your media root later when filesystem diagnostics are enabled.
-      # - /mnt/media:/media:ro
+      # Recommended: read-only view of the complete host filesystem for
+      # path, permission, storage and hardlink diagnostics.
+      - /:/host:ro
     restart: unless-stopped

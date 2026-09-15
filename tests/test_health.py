@@ -13,7 +13,7 @@ def test_health_endpoint():
     assert response.status_code == 200
     assert response.json()["status"] == "healthy"
     assert response.json()["name"] == "ArrMedic"
-    assert response.json()["version"] == EXPECTED_VERSION == "0.10.0"
+    assert response.json()["version"] == EXPECTED_VERSION == "0.11.0"
 
 
 def test_dashboard_loads():
@@ -43,3 +43,10 @@ def test_download_client_doctor_page_loads():
     assert response.status_code == 200
     assert "Download Client Doctor" in response.text
     assert "download-client-doctor.js?v=0.10.0" in response.text
+
+
+def test_deep_scan_installed():
+    from app import main as main_module
+
+    assert getattr(main_module, "_ARRMEDIC_DEEP_SCAN_INSTALLED", False) is True
+    assert getattr(app.state, "arrmedic_auto_scan_installed", False) is True

@@ -8,34 +8,71 @@
 
 ArrMedic is a free, open-source diagnostics and troubleshooting dashboard for Sonarr, Radarr, Prowlarr, Lidarr, Readarr, Whisparr and the wider self-hosted media automation stack.
 
-> **Current release: v0.6.0** — live stack diagnostics, persisted scan history, recent failure correlation, prioritized guided fixes, JSON report export, multiple encrypted *Arr connections and a professional browser-first dashboard.
+> **Current development release: v0.11.0** — automatic deep read-only diagnostics, downloader/path correlation, filesystem visibility, permission signals, health scoring, guided fixes, scan history and safe Docker mount suggestions.
 
-## What ArrMedic does now
+## What ArrMedic checks
 
-- Add multiple instances of Sonarr, Radarr, Prowlarr, Lidarr, Readarr and Whisparr
-- Test each connection before saving it
-- Automatically detect supported API generation (`v1` / `v3` fallback)
-- Encrypt API keys at rest and hash the administrator password
-- Run and save a full-stack health scan
-- Keep the latest **50 diagnostic scans** in persistent SQLite storage
-- Show a health-history trend in the browser
-- Calculate per-service and whole-stack health scores
-- Read native *Arr application health warnings
-- Correlate recent failure/error events from *Arr history (up to 24 hours)
-- Inspect root folders and reported free space
-- Flag root folders below 10 GiB free space
-- Inspect queue/import failures and extract useful status messages
-- Show configured download clients and remote-path mappings
-- Check enabled Prowlarr indexers
-- Generate prioritized **guided fixes** with concrete troubleshooting steps
-- Export the current saved diagnostic report as JSON from the browser
-- Work normally with zero *Arr services configured
+When you add or update a supported app, ArrMedic can automatically run a deep read-only scan and inspect as many capabilities as that app exposes safely through its API.
 
-## Working Doctors
+Checks include:
 
-**Path Doctor** compares paths reported by the *Arr API with paths visible inside ArrMedic. **Permission Doctor** checks ArrMedic's own read visibility without falsely claiming to know another container's UID/GID state. **Hardlink Doctor** detects visible paths on different filesystem/device boundaries. **Queue Doctor** identifies blocked/failed queue items and surfaces the useful error text.
+- API connection and application version
+- Native *Arr health warnings
+- Root folders and free space
+- Disk-space warnings
+- Queue and import failures
+- Download clients
+- Remote Path Mappings
+- Radarr/Sonarr downloader path mismatches
+- Indexer configuration
+- Recent failure/error history
+- Missing monitored media count when supported
+- Media Management / hardlink settings when supported
+- Host path visibility
+- Read permission visibility
+- Native permission/access errors reported by the application
+- Filesystem/device boundaries for hardlink compatibility
+- Prowlarr connected applications
+- Guided fixes and health scoring
 
-Filesystem checks are observational. ArrMedic v0.6 does not modify media or create test hardlinks.
+Unsupported API endpoints are treated as unavailable capabilities, not as failures.
+
+## Host filesystem diagnostics
+
+For useful path, permission, storage and hardlink diagnostics, ArrMedic should have a **read-only view of the host filesystem**.
+
+The standard layout is:
+
+```text
+/config  -> writable ArrMedic data
+/host    -> read-only mirror of host /
+```
+
+The host root is mounted like this:
+
+```bash
+--mount type=bind,source=/,target=/host,readonly
+```
+
+ArrMedic then translates paths reported by apps automatically. For example:
+
+```text
+Radarr reports:       /mnt/Movies
+ArrMedic checks:      /host/mnt/Movies
+
+Sonarr reports:       /downloads/tv
+ArrMedic checks:      /host/downloads/tv
+```
+
+This lets ArrMedic inspect whether the host path exists, whether it is readable, what filesystem/device it belongs to and how much space is available, without giving ArrMedic write access to the host.
+
+> Do **not** mount host `/` onto container `/`. The host root must be mounted to `/host` so it does not replace the container filesystem.
+
+The default host prefix is `/host`. Advanced users can override it with:
+
+```text
+ARRMEDIC_HOST_ROOT=/host
+```
 
 ## Docker
 
@@ -49,8 +86,6 @@ ArrMedic uses **7080 everywhere**.
 
 ### Recommended plain Docker installation
 
-Persistent data belongs on the host so container replacement never removes the login, encrypted API keys, settings or saved diagnostic history:
-
 ```bash
 sudo mkdir -p /opt/arrmedic/config
 
@@ -59,7 +94,9 @@ docker pull ghcr.io/kasundigital/arrmedic:latest
 docker run -d \
   --name arrmedic \
   -p 7080:7080 \
+  -e ARRMEDIC_HOST_ROOT=/host \
   --mount type=bind,source=/opt/arrmedic/config,target=/config \
+  --mount type=bind,source=/,target=/host,readonly \
   --restart unless-stopped \
   ghcr.io/kasundigital/arrmedic:latest
 ```
@@ -70,58 +107,78 @@ Open:
 http://SERVER-IP:7080
 ```
 
-Creating an admin account is the only required first-run step. Connecting an *Arr app is optional and can be done later.
+The `/config` mount is writable and stores the login, encrypted API keys, settings and scan history. The `/host` mount is read-only and is used only for diagnostics.
 
-### Optional deeper filesystem diagnostics
+### Docker Compose
 
-API diagnostics work without media mounts. If Sonarr/Radarr report paths such as `/data`, mount the same path read-only into ArrMedic to unlock deeper Path / Permission / Hardlink checks:
-
-```bash
-docker stop arrmedic
-docker rm arrmedic
-
-docker run -d \
-  --name arrmedic \
-  -p 7080:7080 \
-  --mount type=bind,source=/opt/arrmedic/config,target=/config \
-  --mount type=bind,source=/data,target=/data,readonly \
-  --restart unless-stopped \
-  ghcr.io/kasundigital/arrmedic:latest
+```yaml
+services:
+  arrmedic:
+    image: ghcr.io/kasundigital/arrmedic:latest
+    container_name: arrmedic
+    ports:
+      - "7080:7080"
+    environment:
+      - ARRMEDIC_HOST_ROOT=/host
+    volumes:
+      - /opt/arrmedic/config:/config
+      - /:/host:ro
+    restart: unless-stopped
 ```
 
-Use the same container path that the relevant *Arr app reports. Read-only is sufficient.
-
-### Updating
+## Updating / reinstalling without losing settings
 
 ```bash
-docker stop arrmedic
-docker rm arrmedic
+docker stop arrmedic 2>/dev/null || true
+docker rm arrmedic 2>/dev/null || true
+
 docker pull ghcr.io/kasundigital/arrmedic:latest
 
 docker run -d \
   --name arrmedic \
   -p 7080:7080 \
+  -e ARRMEDIC_HOST_ROOT=/host \
   --mount type=bind,source=/opt/arrmedic/config,target=/config \
+  --mount type=bind,source=/,target=/host,readonly \
   --restart unless-stopped \
   ghcr.io/kasundigital/arrmedic:latest
 ```
 
-If you use optional media mounts, include them again when recreating the container.
+Do not delete `/opt/arrmedic/config` if you want to keep your existing ArrMedic configuration.
+
+## Why `/host` is read-only
+
+ArrMedic is a diagnostics tool. It should be able to **observe** the host filesystem without being able to modify media, Docker application data or system files.
+
+The host-root mount is therefore documented as read-only:
+
+```text
+/:/host:ro
+```
+
+ArrMedic does not require `/var/run/docker.sock` for normal diagnostics.
+
+A read-only host mount still does **not** mean ArrMedic can know the exact effective UID/GID permissions inside another container. It can detect host path visibility/readability, filesystem layout and native permission errors reported by Radarr/Sonarr/etc., but it does not pretend to have visibility it does not actually have.
+
+## Working Doctors
+
+**Path Doctor** checks API paths against the host filesystem mirror. **Permission Doctor** checks readable paths and correlates native application access errors. **Hardlink Doctor** checks filesystem/device boundaries. **Queue Doctor** surfaces blocked imports and useful error messages. **Download Client Doctor** correlates Radarr/Sonarr queue paths, download clients and Remote Path Mappings.
+
+Filesystem checks are observational. ArrMedic does not create test hardlinks or modify media during diagnostics.
 
 ## Diagnostic API
 
 Authenticated sessions can use:
 
 ```text
-GET  /api/diagnostics/summary            # live, unsaved scan
+GET  /api/diagnostics/summary            # live, unsaved deep scan
 POST /api/diagnostics/run                # run + persist full scan
 GET  /api/diagnostics/latest             # latest persisted result
 GET  /api/diagnostics/history?limit=20   # saved score history
-GET  /api/instances/{id}/diagnostics     # one service, not saved as full scan
+GET  /api/instances/{id}/diagnostics     # one service deep scan
 POST /api/instances/{id}/check           # connection check
+GET  /api/doctors/download-clients       # downloader/path correlation
 ```
-
-Unsupported endpoints on a particular service are treated as unavailable rather than automatically treated as failures.
 
 ## Build from source
 
@@ -134,7 +191,9 @@ sudo mkdir -p /opt/arrmedic/config
 docker run -d \
   --name arrmedic \
   -p 7080:7080 \
+  -e ARRMEDIC_HOST_ROOT=/host \
   --mount type=bind,source=/opt/arrmedic/config,target=/config \
+  --mount type=bind,source=/,target=/host,readonly \
   arrmedic:local
 ```
 
@@ -144,7 +203,7 @@ docker run -d \
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn app.main:app --host 0.0.0.0 --port 7080 --reload
+uvicorn app.bootstrap:app --host 0.0.0.0 --port 7080 --reload
 ```
 
 Windows PowerShell activation:
@@ -155,15 +214,16 @@ Windows PowerShell activation:
 
 ## Quality checks
 
-CI runs Python tests, validates browser JavaScript syntax with Node, and builds the Docker image before changes are merged.
-
-## Next development
-
-Planned layers include deeper qBittorrent/SABnzbd/Transmission-specific checks, richer remote-path analysis, Bazarr/subtitle diagnostics, media stream inspection, notifications and additional safe guided remediation.
+CI runs Python tests, validates browser JavaScript syntax with Node and builds the Docker image before changes are merged.
 
 ## Security
 
-ArrMedic does not require Docker socket access for normal operation. API keys are encrypted in `/config`; passwords are hashed. Do not commit secrets, passwords, API keys or `.env` files.
+- `/config` is the only standard writable persistent mount.
+- `/host` is mounted read-only for diagnostics.
+- Docker socket access is not required by default.
+- API keys are encrypted at rest.
+- Administrator passwords are hashed.
+- Do not commit secrets, passwords, API keys or `.env` files.
 
 ## Contributing
 
