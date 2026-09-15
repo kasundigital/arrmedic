@@ -142,12 +142,7 @@ def _extra_recommendations(report: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def install_deep_scan(main_module) -> None:
-    """Upgrade all existing diagnostics to a broader read-only scan.
-
-    This patches the function used by the existing single-instance and full-stack
-    diagnostics endpoints, so every normal scan automatically receives the same
-    deeper checks without changing public API routes.
-    """
+    """Upgrade every existing diagnostic route to a broad read-only scan."""
 
     if getattr(main_module, "_ARRMEDIC_DEEP_SCAN_INSTALLED", False):
         return
@@ -165,7 +160,6 @@ def install_deep_scan(main_module) -> None:
             "queue-imports",
             "download-clients",
             "remote-path-mappings",
-            "indexers",
             "recent-history",
             "path-visibility",
             "permissions",
@@ -192,15 +186,16 @@ def install_deep_scan(main_module) -> None:
             except HTTPException:
                 return None
 
-        diskspace_data, media_management, missing_data, applications_data = await asyncio.gather(
+        diskspace_data, media_management, missing_data, applications_data, indexers_data, tasks_data = await asyncio.gather(
             optional("diskspace"),
             optional("config/mediamanagement") if kind in MEDIA_KINDS else asyncio.sleep(0, result=None),
             optional("wanted/missing", {"page": 1, "pageSize": 1}) if kind in MEDIA_KINDS else asyncio.sleep(0, result=None),
             optional("applications") if kind == "prowlarr" else asyncio.sleep(0, result=None),
+            optional("indexer"),
+            optional("system/task"),
         )
 
         checks = report.setdefault("checks", [])
-        existing_codes = {item.get("code") for item in checks if isinstance(item, dict)}
         capabilities = report["capabilitiesScanned"]
 
         if diskspace_data is not None:
@@ -245,12 +240,13 @@ def install_deep_scan(main_module) -> None:
                     )
                 )
 
-        # Existing core code evaluates Prowlarr indexers. Do the same for every
-        # service that exposes the indexer endpoint.
-        if report.get("indexers") is not None and "indexers" not in existing_codes:
-            indexers = [item for item in report.get("indexers", []) if isinstance(item, dict)]
-            if indexers:
-                enabled = [item for item in indexers if item.get("enable", True)]
+        if indexers_data is not None:
+            capabilities.append("indexers")
+            indexers = _records(indexers_data)
+            report["indexers"] = indexers
+            enabled = [item for item in indexers if item.get("enable", True)]
+            # Prowlarr already has a core indexer check; avoid counting it twice.
+            if kind != "prowlarr":
                 checks.append(
                     main_module.check(
                         "indexer_configuration",
@@ -259,6 +255,13 @@ def install_deep_scan(main_module) -> None:
                         f"{len(enabled)} enabled indexer(s) found." if enabled else "Indexer settings are available, but no enabled indexer was found.",
                     )
                 )
+
+        if tasks_data is not None:
+            capabilities.append("scheduled-tasks")
+            tasks = _records(tasks_data)
+            report["scheduledTasks"] = tasks
+            if tasks:
+                checks.append(main_module.check("scheduled_tasks", "Scheduled tasks", "pass", f"{len(tasks)} application task(s) are visible to ArrMedic."))
 
         permission_signals = _native_permission_signals(report)
         if permission_signals:
@@ -293,7 +296,7 @@ def install_deep_scan(main_module) -> None:
                         issues[:15],
                     )
                 )
-            except Exception as exc:  # keep the main scan useful if one doctor cannot run
+            except Exception as exc:  # one doctor must never break the complete scan
                 checks.append(main_module.check("download_path_doctor", "Download client paths", "info", f"Download Client Doctor could not complete: {exc}"))
 
         if kind == "prowlarr" and applications_data is not None:
@@ -309,7 +312,6 @@ def install_deep_scan(main_module) -> None:
                 )
             )
 
-        # Recalculate score after the added checks and regenerate recommendations.
         report["score"] = main_module.score_checks(checks)
         report["recommendations"] = main_module.build_recommendations(report)
         existing_rec_codes = {item.get("code") for item in report["recommendations"] if isinstance(item, dict)}
@@ -327,7 +329,7 @@ def install_deep_scan(main_module) -> None:
 
 
 def install_auto_scan_middleware(app, main_module) -> None:
-    """Automatically run and save a full deep scan after instance changes."""
+    """Run and save a full deep scan after add/edit/remove of an app."""
 
     if getattr(app.state, "arrmedic_auto_scan_installed", False):
         return
@@ -349,9 +351,8 @@ def install_auto_scan_middleware(app, main_module) -> None:
                 run_id = main_module.save_scan(summary)
                 response.headers["X-ArrMedic-Auto-Scan"] = "complete"
                 response.headers["X-ArrMedic-Scan-Id"] = str(run_id)
-            except Exception as exc:
-                # Saving the service must not be rolled back only because a later
-                # read-only diagnostic endpoint is temporarily unavailable.
+            except Exception:
+                # Saving the app must not be rolled back because a later read-only
+                # diagnostic endpoint is temporarily unavailable.
                 response.headers["X-ArrMedic-Auto-Scan"] = "partial"
-                response.headers["X-ArrMedic-Auto-Scan-Error"] = str(exc)[:180]
         return response
