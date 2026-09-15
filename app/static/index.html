@@ -6,9 +6,9 @@
   <meta name="color-scheme" content="dark" />
   <title>ArrMedic</title>
   <link rel="icon" href="/static/logo.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/static/styles.css?v=0.9.0" />
-  <link rel="stylesheet" href="/static/diagnostics.css?v=0.9.0" />
-  <link rel="stylesheet" href="/static/issue-center.css?v=0.9.0" />
+  <link rel="stylesheet" href="/static/styles.css?v=0.11.0" />
+  <link rel="stylesheet" href="/static/diagnostics.css?v=0.11.0" />
+  <link rel="stylesheet" href="/static/issue-center.css?v=0.11.0" />
 </head>
 <body>
   <div class="ambient ambient-a"></div><div class="ambient ambient-b"></div>
@@ -67,7 +67,7 @@
         <a class="nav-item" href="#diagnostics" data-route="diagnostics"><span class="nav-icon">✦</span><span>Diagnostics</span></a>
         <a class="nav-item" href="#settings" data-route="settings"><span class="nav-icon">⚙</span><span>Settings</span></a>
       </nav>
-      <div class="side-footer"><div class="build"><span class="pulse"></span><span>ArrMedic</span><strong>v0.9.0</strong></div><button id="logoutButton" class="button ghost full">Sign out</button></div>
+      <div class="side-footer"><div class="build"><span class="pulse"></span><span>ArrMedic</span><strong id="sidebarVersion">v…</strong></div><button id="logoutButton" class="button ghost full">Sign out</button></div>
     </aside>
 
     <main class="workspace">
@@ -114,14 +114,32 @@
 
       <section id="settingsView" class="view hidden" data-view="settings">
         <header class="topbar"><div><span class="kicker">SETTINGS</span><h1>Application settings</h1><p>Runtime, data persistence and security information.</p></div></header>
-        <div class="settings-grid"><article class="surface"><span class="kicker">RUNTIME</span><h2>Installation</h2><div class="setting-list"><div><span>Port</span><strong>7080</strong></div><div><span>Persistent data</span><strong>/config</strong></div><div><span>Version</span><strong>0.9.0</strong></div></div></article><article class="surface"><span class="kicker">SECURITY</span><h2>Protected by default</h2><p class="subtle">Admin passwords are hashed. Service API keys are encrypted at rest and are never displayed back in the UI.</p></article><article class="surface"><span class="kicker">SCAN STORAGE</span><h2>Local history</h2><p class="subtle">ArrMedic keeps the latest 50 full diagnostic scans in the persistent SQLite database so health trends survive browser and container restarts.</p></article><article class="surface"><span class="kicker">DOCTOR WORKSPACES</span><h2>Simple troubleshooting</h2><p class="subtle">Use the dedicated Folders & Mounts, Hardlink Check, Permissions and Import Problems screens. Docker socket access remains disabled by default.</p></article></div>
+        <div class="settings-grid"><article class="surface"><span class="kicker">RUNTIME</span><h2>Installation</h2><div class="setting-list"><div><span>Port</span><strong>7080</strong></div><div><span>Persistent data</span><strong>/config</strong></div><div><span>Version</span><strong id="settingsVersion">…</strong></div></div></article><article class="surface"><span class="kicker">SECURITY</span><h2>Protected by default</h2><p class="subtle">Admin passwords are hashed. Service API keys are encrypted at rest and are never displayed back in the UI.</p></article><article class="surface"><span class="kicker">SCAN STORAGE</span><h2>Local history</h2><p class="subtle">ArrMedic keeps the latest 50 full diagnostic scans in the persistent SQLite database so health trends survive browser and container restarts.</p></article><article class="surface"><span class="kicker">DOCTOR WORKSPACES</span><h2>Simple troubleshooting</h2><p class="subtle">Use the dedicated Folders & Mounts, Hardlink Check, Permissions and Import Problems screens. Docker socket access remains disabled by default.</p></article></div>
       </section>
     </main>
   </div>
 
   <div id="editModal" class="modal hidden"><div class="modal-card glass"><div class="section-head"><div><span class="kicker">EDIT SERVICE</span><h2>Update connection</h2></div><button id="closeEditModal" class="close-button">×</button></div><form id="editServiceForm" class="form-stack"><input id="editId" type="hidden" /><div class="two-col"><label><span>Service name</span><input id="editName" required /></label><label><span>Service</span><select id="editKind"><option value="sonarr">Sonarr</option><option value="radarr">Radarr</option><option value="prowlarr">Prowlarr</option><option value="lidarr">Lidarr</option><option value="readarr">Readarr</option><option value="whisparr">Whisparr</option></select></label></div><label><span>URL</span><input id="editUrl" type="url" required /></label><label><span>New API key <small>(blank keeps current)</small></span><input id="editApiKey" type="password" autocomplete="off" /></label><div id="editResult" class="notice hidden"></div><div class="action-row"><button type="button" id="cancelEdit" class="button secondary">Cancel</button><button type="submit" class="button primary">Save & test</button></div></form></div></div>
 
-  <script src="/static/app.js?v=0.9.0" defer></script>
-  <script src="/static/issue-center.js?v=0.9.0" defer></script>
+  <script src="/static/app.js?v=0.11.0" defer></script>
+  <script src="/static/issue-center.js?v=0.11.0" defer></script>
+  <script>
+    window.addEventListener('DOMContentLoaded', async () => {
+      try {
+        const response = await fetch('/api/health', { cache: 'no-store' });
+        const data = await response.json();
+        const version = String(data.version || 'unknown');
+        const sidebar = document.getElementById('sidebarVersion');
+        const settings = document.getElementById('settingsVersion');
+        if (sidebar) sidebar.textContent = `v${version}`;
+        if (settings) settings.textContent = version;
+      } catch (_) {
+        const sidebar = document.getElementById('sidebarVersion');
+        const settings = document.getElementById('settingsVersion');
+        if (sidebar) sidebar.textContent = 'v?';
+        if (settings) settings.textContent = 'unknown';
+      }
+    });
+  </script>
 </body>
 </html>
