@@ -232,3 +232,15 @@ Issues, feature requests and pull requests are welcome. The goal is to keep ArrM
 ## License
 
 MIT License © 2026 Kasun Indika
+
+---
+
+## ☕ Support this project
+
+This project is free and open source. If it helps you, you can support continued development:
+
+<div align="center">
+  <a href="https://buymeacoffee.com/kasundigital" target="_blank">
+    <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me a Coffee" height="50">
+  </a>
+</div>
