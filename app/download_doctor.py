@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from fastapi import APIRouter, Cookie, HTTPException
@@ -11,6 +12,10 @@ from .path_advice import expand_mapping, mapping_for_container_path, path_visibi
 router = APIRouter(prefix="/api/doctors/download-clients", tags=["download-client-doctor"])
 
 SUPPORTED_KINDS = {"radarr", "sonarr"}
+_DOWNLOAD_PATH_HEALTH_RE = re.compile(
+    r"download client\s+(.+?)\s+places downloads in\s+(.+?)\s+but this directory",
+    re.IGNORECASE,
+)
 
 
 def _field_value(client: dict[str, Any], *names: str) -> Any:
@@ -73,12 +78,82 @@ def _queue_messages(item: dict[str, Any]) -> list[str]:
     return messages
 
 
+def _health_messages(data: object | None) -> list[str]:
+    messages: list[str] = []
+    for item in records_from(data):
+        if item.get("message"):
+            messages.append(str(item["message"]))
+    return messages
+
+
 def _looks_like_path_problem(text: str) -> bool:
     lowered = text.lower()
     return any(token in lowered for token in (
         "path does not exist", "path is not accessible", "folder does not exist", "directory does not exist",
+        "does not appear to exist inside the container", "places downloads in",
         "no files found", "remote path", "unable to import", "not a valid local path", "access to the path", "permission denied",
     ))
+
+
+def _extract_download_health_path(text: str) -> tuple[str | None, str | None]:
+    match = _DOWNLOAD_PATH_HEALTH_RE.search(text or "")
+    if not match:
+        return None, None
+    return match.group(1).strip(), match.group(2).strip().rstrip(".,;")
+
+
+def _friendly_path_guidance(
+    instance_name: str,
+    client_name: str,
+    raw_path: str | None,
+    mapped_path: str | None,
+    suggestion: dict[str, Any] | None,
+) -> dict[str, Any]:
+    client_label = client_name or "download client"
+    app_label = instance_name or "Radarr/Sonarr"
+    shown_path = raw_path or "the reported download folder"
+    suggestion = suggestion or {}
+
+    steps = [
+        f"Open the Docker settings for {client_label} and {app_label}.",
+        "Find the real host folder where completed downloads are stored.",
+        "Mount that same host folder into both containers using the same container path, for example /data/downloads.",
+        f"Set {client_label}'s completed-download folder to that shared path, then run this check again.",
+    ]
+    note = "Using the same path in both containers is the easiest and least confusing setup."
+    if raw_path and raw_path.startswith("/config"):
+        note = (
+            "/config is normally meant for application settings, not shared downloads. "
+            "For a simpler setup, keep downloads under a shared path such as /data/downloads."
+        )
+
+    if suggestion.get("kind") == "saved_mapping" and suggestion.get("containerPath"):
+        steps = [
+            f"Keep the verified host folder {suggestion.get('hostPath')} available to both containers.",
+            f"Use {suggestion.get('containerPath')} as the shared download path in {client_label} and {app_label}.",
+            "Run the check again after changing the container mounts or application folder settings.",
+        ]
+    elif suggestion.get("kind") == "remote_path_mapping_needed":
+        steps.append(
+            "If the two containers must use different paths, add a Remote Path Mapping in Radarr/Sonarr only after confirming both paths point to the same host folder."
+        )
+
+    return {
+        "title": f"{app_label} cannot see {client_label} downloads",
+        "message": f"{client_label} reports downloads at {shown_path}, but {app_label} cannot use that folder to import the files.",
+        "impact": "Downloads may finish successfully but stay stuck because the media app cannot reach the completed files.",
+        "recommended": "Give the downloader and media app access to the same download folder using the same container path.",
+        "steps": steps,
+        "note": note,
+        "advanced": {
+            "reportedPath": raw_path,
+            "mappedPath": mapped_path,
+            "dockerMount": suggestion.get("dockerMount"),
+            "remoteHost": suggestion.get("remoteHost"),
+            "remotePath": suggestion.get("remotePath"),
+            "kind": suggestion.get("kind"),
+        },
+    }
 
 
 def _apply_remote_mapping(path: str, mappings: list[dict[str, Any]], host: str | None = None) -> tuple[str, dict[str, Any] | None]:
@@ -147,6 +222,7 @@ async def diagnose_instance(instance_id: int) -> dict[str, Any]:
     clients_raw, _ = await arr_get(payload, "downloadclient", preferred_version=preferred)
     remote_raw, _ = await arr_get(payload, "remotepathmapping", preferred_version=preferred, allow_missing=True)
     queue_raw, _ = await arr_get(payload, "queue", preferred_version=preferred, params={"page": 1, "pageSize": 100}, allow_missing=True)
+    health_raw, _ = await arr_get(payload, "health", preferred_version=preferred, allow_missing=True)
 
     clients = [_client_summary(item) for item in clients_raw or [] if isinstance(item, dict)] if isinstance(clients_raw, list) else []
     remotes = [_remote_mapping_summary(item) for item in remote_raw or [] if isinstance(item, dict)] if isinstance(remote_raw, list) else []
@@ -171,6 +247,7 @@ async def diagnose_instance(instance_id: int) -> dict[str, Any]:
             mapped_path, applied = _apply_remote_mapping(raw_path, remotes, client_host or None)
             advice = _suggestion(raw_path, mapped_path, client_host, applied, manual_mappings)
             visibility = advice["visibility"]
+            friendly = _friendly_path_guidance(instance["name"], client_name or client_host, raw_path, mapped_path, advice["suggestion"])
             path_rows.append({
                 "title": item.get("title") or item.get("movie", {}).get("title") or item.get("series", {}).get("title") or "Queue item",
                 "downloadClient": client_name or (client.get("name") if client else None),
@@ -189,34 +266,67 @@ async def diagnose_instance(instance_id: int) -> dict[str, Any]:
                 issues.append({
                     "severity": "error",
                     "code": "unmapped_download_path",
-                    "title": "Download path is not mapped to a visible host path",
-                    "message": f"{client_name or client_host or 'Download client'} reported {raw_path}. After Remote Path Mapping, {instance['name']} would use {mapped_path}, but ArrMedic cannot verify that path on the read-only host filesystem.",
+                    "title": friendly["title"],
+                    "message": friendly["message"],
                     "path": raw_path,
                     "mappedPath": mapped_path,
                     "downloadClient": client_name or None,
                     "suggestion": advice["suggestion"],
-                })
-            elif visibility.get("source") == "host" and not applied and raw_path != mapped_path:
-                issues.append({
-                    "severity": "warning",
-                    "code": "path_mapping_review",
-                    "title": "Review download path mapping",
-                    "message": f"The path resolves on the host, but the downloader and {instance['name']} are not using an explicitly verified mapping.",
-                    "path": raw_path,
-                    "mappedPath": mapped_path,
-                    "suggestion": advice["suggestion"],
+                    "friendly": friendly,
                 })
 
         for message in messages:
             if _looks_like_path_problem(message):
+                friendly = _friendly_path_guidance(instance["name"], client_name or client_host, raw_path, raw_path, None)
                 issues.append({
                     "severity": "error" if "does not exist" in message.lower() or "not accessible" in message.lower() else "warning",
                     "code": "queue_path_problem",
-                    "title": "Import/download path problem",
-                    "message": message,
+                    "title": friendly["title"],
+                    "message": friendly["message"],
+                    "rawMessage": message,
                     "path": raw_path,
                     "downloadClient": client_name or None,
+                    "friendly": friendly,
                 })
+
+    for message in _health_messages(health_raw):
+        if not _looks_like_path_problem(message):
+            continue
+        health_client, health_path = _extract_download_health_path(message)
+        client = next(
+            (
+                c for c in clients
+                if health_client
+                and health_client.lower() in {
+                    str(c.get("name") or "").lower(),
+                    str(c.get("implementation") or "").lower(),
+                    str(c.get("host") or "").lower(),
+                }
+            ),
+            None,
+        )
+        client_name = health_client or (str(client.get("name") or "") if client else "download client")
+        client_host = str(client.get("host") or "") if client else ""
+        mapped_path = health_path
+        applied = None
+        advice = None
+        if health_path:
+            mapped_path, applied = _apply_remote_mapping(health_path, remotes, client_host or None)
+            advice = _suggestion(health_path, mapped_path, client_host, applied, manual_mappings)
+        suggestion = advice["suggestion"] if advice else None
+        friendly = _friendly_path_guidance(instance["name"], client_name, health_path, mapped_path, suggestion)
+        issues.append({
+            "severity": "error",
+            "code": "native_download_path_problem",
+            "title": friendly["title"],
+            "message": friendly["message"],
+            "rawMessage": message,
+            "path": health_path,
+            "mappedPath": mapped_path,
+            "downloadClient": client_name,
+            "suggestion": suggestion,
+            "friendly": friendly,
+        })
 
     seen: set[tuple[str, str, str]] = set()
     unique_issues: list[dict[str, Any]] = []
@@ -231,8 +341,8 @@ async def diagnose_instance(instance_id: int) -> dict[str, Any]:
         "clients": clients, "remotePathMappings": remotes, "queuePaths": path_rows, "manualPathMappings": manual_mappings,
         "issues": unique_issues, "issueCount": len(unique_issues), "status": "problem" if unique_issues else "ok",
         "help": {
-            "samePathRule": "On one Docker host, prefer one common path in the downloader and *Arr containers, for example /data/downloads.",
-            "remotePathRule": "Use Remote Path Mapping only when the downloader reports a path that Radarr/Sonarr cannot use directly. ArrMedic only shows an exact mapping when it can verify the host↔container relationship.",
+            "samePathRule": "For the easiest setup, let the downloader and Radarr/Sonarr use the same shared download path, for example /data/downloads.",
+            "remotePathRule": "Remote Path Mapping is an advanced fallback when the downloader and Radarr/Sonarr must use different paths.",
         },
     }
 

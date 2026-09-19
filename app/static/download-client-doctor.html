@@ -6,35 +6,35 @@
   <meta name="color-scheme" content="dark" />
   <title>Download Client Doctor · ArrMedic</title>
   <link rel="icon" href="/static/logo.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/static/styles.css?v=0.10.0" />
-  <link rel="stylesheet" href="/static/download-client-doctor.css?v=0.10.0" />
+  <link rel="stylesheet" href="/static/styles.css?v=0.11.2" />
+  <link rel="stylesheet" href="/static/download-client-doctor.css?v=0.11.2" />
 </head>
 <body>
   <main class="dc-shell">
     <header class="dc-head">
       <div>
-        <span class="kicker">DOWNLOAD CLIENT DOCTOR · v0.10.0</span>
-        <h1>Fix download path problems</h1>
-        <p>ArrMedic compares Radarr/Sonarr download clients, queue paths and Remote Path Mappings so you can see why completed downloads are not importing.</p>
+        <span class="kicker">DOWNLOAD CLIENT DOCTOR · v0.11.2</span>
+        <h1>Fix download folder problems</h1>
+        <p>ArrMedic explains in simple language when Radarr or Sonarr cannot see files downloaded by SABnzbd, qBittorrent or another download client.</p>
       </div>
       <div class="dc-head-actions"><button id="scanButton" class="button primary">Run checks</button><a class="button secondary" href="/#dashboard">← Back to dashboard</a></div>
     </header>
 
     <section class="surface explainer">
-      <div class="flow"><span>Download client</span><b>→</b><span>Reported path</span><b>→</b><span>Remote Path Mapping</span><b>→</b><span>Radarr / Sonarr</span></div>
-      <p>The easiest Docker setup is usually to expose the same common path to both containers, for example <code>/data/downloads</code>. Remote Path Mapping is mainly for different hosts or intentionally different container paths.</p>
+      <div class="flow"><span>Download finishes</span><b>→</b><span>Radarr/Sonarr finds folder</span><b>→</b><span>Media imports</span></div>
+      <p>If the folders do not line up, ArrMedic shows what went wrong and gives beginner-friendly steps first. Docker mounts and Remote Path Mapping details stay under Advanced details.</p>
     </section>
 
     <section class="summary-grid">
       <article class="surface metric"><span>Radarr / Sonarr</span><strong id="instanceCount">0</strong></article>
       <article class="surface metric"><span>Download clients</span><strong id="clientCount">0</strong></article>
-      <article class="surface metric"><span>Path issues</span><strong id="issueCount">0</strong></article>
+      <article class="surface metric"><span>Problems</span><strong id="issueCount">0</strong></article>
       <article class="surface metric"><span>Queue paths checked</span><strong id="pathCount">0</strong></article>
     </section>
 
     <div id="notice" class="notice hidden"></div>
-    <section id="results" class="dc-results"><div class="surface empty"><strong>Ready to check</strong><p>Run checks to inspect Radarr and Sonarr download-client configuration and current queue paths.</p></div></section>
+    <section id="results" class="dc-results"><div class="surface empty"><strong>Ready to check</strong><p>ArrMedic will check download-folder warnings and current queue paths.</p></div></section>
   </main>
-  <script src="/static/download-client-doctor.js?v=0.10.0" defer></script>
+  <script src="/static/download-client-doctor.js?v=0.11.2" defer></script>
 </body>
 </html>
