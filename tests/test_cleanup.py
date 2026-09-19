@@ -1,4 +1,4 @@
-from app.cleanup import extract_removed_ids, item_has_media
+from app.cleanup import cleanup_status, extract_removed_ids, item_has_media
 
 
 def test_extract_removed_tmdb_ids():
@@ -24,3 +24,9 @@ def test_radarr_media_guard():
 def test_sonarr_media_guard():
     assert item_has_media("sonarr", {"statistics": {"episodeFileCount": 4}}) is True
     assert item_has_media("sonarr", {"statistics": {"episodeFileCount": 0}}) is False
+
+
+def test_cleanup_status_safe_only_when_stale_and_missing():
+    assert cleanup_status(True, False)[0] == "safe"
+    assert cleanup_status(False, False)[0] == "review"
+    assert cleanup_status(True, True)[0] == "manual_only"

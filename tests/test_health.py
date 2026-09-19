@@ -13,7 +13,7 @@ def test_health_endpoint():
     assert response.status_code == 200
     assert response.json()["status"] == "healthy"
     assert response.json()["name"] == "ArrMedic"
-    assert response.json()["version"] == EXPECTED_VERSION == "0.11.2"
+    assert response.json()["version"] == EXPECTED_VERSION == "0.11.3"
 
 
 def test_dashboard_loads():

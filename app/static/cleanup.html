@@ -6,87 +6,78 @@
   <meta name="color-scheme" content="dark" />
   <title>ArrMedic Cleanup Scanner</title>
   <link rel="icon" href="/static/logo.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/static/styles.css?v=0.9.1" />
-  <link rel="stylesheet" href="/static/cleanup.css?v=0.9.1" />
+  <link rel="stylesheet" href="/static/styles.css?v=0.11.3" />
+  <link rel="stylesheet" href="/static/cleanup.css?v=0.11.3" />
 </head>
 <body>
   <main class="cleanup-shell">
     <header class="cleanup-head">
-      <div>
-        <span class="kicker">LIBRARY CLEANUP · v0.9.1</span>
-        <h1>Cleanup Scanner</h1>
-        <p>Scan selected Radarr and Sonarr instances for stale metadata records and items with no media files.</p>
-      </div>
-      <a class="button secondary" href="/#dashboard">← Back to ArrMedic</a>
+      <div><span class="kicker">SAFE CLEANUP · v0.11.3</span><h1>Cleanup Scanner</h1><p>First run a dry scan. Nothing is changed until you review the report, select items, and confirm cleanup.</p></div>
+      <a class="button secondary" href="/#tools">← Back to Tools</a>
     </header>
+
+    <section class="workflow-strip">
+      <div class="workflow-step active"><span>1</span><strong>Dry Run</strong><small>Scan only</small></div><b>→</b>
+      <div class="workflow-step"><span>2</span><strong>Review Report</strong><small>Choose items</small></div><b>→</b>
+      <div class="workflow-step"><span>3</span><strong>Confirm</strong><small>Nothing automatic</small></div><b>→</b>
+      <div class="workflow-step"><span>4</span><strong>Cleanup</strong><small>Run selected action</small></div>
+    </section>
 
     <section class="cleanup-grid">
       <article class="surface cleanup-selector">
-        <div class="section-head"><div><span class="kicker">STEP 1</span><h2>Select instances</h2></div><button id="selectAllInstances" class="button ghost small">Select all</button></div>
-        <div id="instanceChoices" class="instance-choice-list"><div class="empty-mini">Loading instances…</div></div>
-        <button id="scanCleanup" class="button primary full" disabled>Scan selected instances</button>
+        <div class="section-head"><div><span class="kicker">STEP 1</span><h2>Choose apps</h2></div><button id="selectAllInstances" class="button ghost small">Select all</button></div>
+        <div id="instanceChoices" class="instance-choice-list"><div class="empty-mini">Loading apps…</div></div>
+        <button id="scanCleanup" class="button primary full" disabled>Run Dry Run — No Changes</button>
         <div id="scanNotice" class="notice hidden"></div>
       </article>
 
       <article class="surface cleanup-summary">
-        <div class="section-head"><div><span class="kicker">RESULTS</span><h2>Cleanup summary</h2></div></div>
+        <div class="section-head"><div><span class="kicker">DRY-RUN REPORT</span><h2>What ArrMedic found</h2></div><button id="exportReport" class="button secondary small" disabled>Export report</button></div>
         <div class="cleanup-stats">
-          <div><span>Candidates</span><strong id="candidateCount">0</strong></div>
-          <div><span>Removed metadata</span><strong id="staleCount">0</strong></div>
-          <div><span>No media file</span><strong id="missingCount">0</strong></div>
-          <div><span>Selected</span><strong id="selectedCount">0</strong></div>
+          <div><span>Total candidates</span><strong id="candidateCount">0</strong></div>
+          <div><span>Safe to clean</span><strong id="safeCount">0</strong></div>
+          <div><span>Review first</span><strong id="reviewCount">0</strong></div>
+          <div><span>Don't auto-clean</span><strong id="manualCount">0</strong></div>
         </div>
-        <p class="cleanup-note"><strong>Safe removal</strong> can remove any selected Radarr/Sonarr record without touching media. <strong>Delete folder</strong> is restricted to items that Radarr/Sonarr currently reports as having no media files.</p>
+        <p id="reportState" class="cleanup-note"><strong>No changes will be made.</strong> Run Dry Run first to create a review report.</p>
       </article>
     </section>
 
     <section id="resultsPanel" class="surface cleanup-results hidden">
+      <div class="review-banner">
+        <div><span class="kicker">STEP 2 · REVIEW</span><strong>Review the report before cleanup</strong><p>Nothing below is selected automatically. “Safe” only means ArrMedic found strong evidence; you still choose what to remove.</p></div>
+        <button id="selectSafeRows" class="button secondary">Select safe items</button>
+      </div>
+
       <div class="cleanup-toolbar">
         <div>
-          <button id="selectAllRows" class="button secondary small">Select all</button>
-          <button id="selectMissingRows" class="button secondary small">Select missing media only</button>
-          <button id="selectStaleRows" class="button secondary small">Select removed metadata only</button>
+          <button id="selectAllRows" class="button secondary small">Select all visible</button>
+          <button id="selectMissingRows" class="button secondary small">Missing media</button>
+          <button id="selectStaleRows" class="button secondary small">Removed metadata</button>
           <button id="clearRows" class="button ghost small">Clear selection</button>
         </div>
         <div class="cleanup-actions">
+          <span class="selection-summary"><strong id="selectedCount">0</strong> selected</span>
           <label class="exclusion-toggle"><input id="addExclusion" type="checkbox" /> Add import exclusion</label>
-          <button id="removeSelected" class="button primary" disabled>Remove from app only</button>
-          <button id="removeSelectedAndFiles" class="button danger-action" disabled>Delete missing item + folder</button>
+          <button id="removeSelected" class="button primary" disabled>Review & Remove from App</button>
+          <button id="removeSelectedAndFiles" class="button danger-action" disabled>Review & Delete Missing Folder</button>
         </div>
       </div>
-      <div class="destructive-note"><strong>Safety rule:</strong> destructive cleanup is available only when every selected row is marked <strong>Missing</strong>. Before each delete, ArrMedic asks Radarr/Sonarr again and blocks the operation if media is present.</div>
+
+      <div class="destructive-note"><strong>Safety:</strong> deleting folders is only available for items currently reported as Missing. ArrMedic checks each item again immediately before deletion.</div>
 
       <div id="cleanupProgress" class="cleanup-progress hidden" aria-live="polite">
-        <div class="cleanup-progress-head">
-          <div>
-            <span class="kicker">DELETE PROGRESS</span>
-            <strong id="cleanupProgressTitle">Preparing cleanup…</strong>
-            <small id="cleanupProgressCurrent">Waiting to start</small>
-          </div>
-          <button id="stopCleanup" class="button danger-action">Stop</button>
-        </div>
+        <div class="cleanup-progress-head"><div><span class="kicker">CLEANUP PROGRESS</span><strong id="cleanupProgressTitle">Preparing cleanup…</strong><small id="cleanupProgressCurrent">Waiting to start</small></div><button id="stopCleanup" class="button danger-action">Stop</button></div>
         <div class="progress-track"><div id="cleanupProgressBar" class="progress-fill" style="width:0%"></div></div>
-        <div class="progress-stats">
-          <span><strong id="cleanupProgressPercent">0%</strong> complete</span>
-          <span><strong id="cleanupProgressDone">0</strong>/<span id="cleanupProgressTotal">0</span> processed</span>
-          <span><strong id="cleanupProgressRemoved">0</strong> removed</span>
-          <span><strong id="cleanupProgressFailed">0</strong> blocked/failed</span>
-        </div>
-        <p class="cleanup-progress-note">Stop prevents the next item from starting. A Radarr/Sonarr request already in progress may finish first.</p>
+        <div class="progress-stats"><span><strong id="cleanupProgressPercent">0%</strong> complete</span><span><strong id="cleanupProgressDone">0</strong>/<span id="cleanupProgressTotal">0</span> processed</span><span><strong id="cleanupProgressRemoved">0</strong> removed</span><span><strong id="cleanupProgressFailed">0</strong> blocked/failed</span></div>
       </div>
 
-      <div class="cleanup-filter-row">
-        <input id="cleanupSearch" type="search" placeholder="Search title, instance, ID or path…" />
-        <select id="cleanupFilter"><option value="all">All candidates</option><option value="stale">Removed metadata</option><option value="missing">No media file</option><option value="both">Removed + no media</option></select>
-      </div>
+      <div class="cleanup-filter-row"><input id="cleanupSearch" type="search" placeholder="Search title, app, ID or path…" /><select id="cleanupFilter"><option value="all">All candidates</option><option value="safe">Safe to clean</option><option value="review">Review first</option><option value="manual_only">Don't auto-clean</option><option value="stale">Removed metadata</option><option value="missing">No media file</option></select></div>
       <div class="cleanup-table-wrap">
-        <table class="cleanup-table">
-          <thead><tr><th></th><th>Item</th><th>Instance</th><th>Metadata</th><th>Media</th><th>Path</th></tr></thead>
-          <tbody id="cleanupRows"></tbody>
-        </table>
+        <table class="cleanup-table"><thead><tr><th></th><th>Item</th><th>App</th><th>Recommendation</th><th>Why</th><th>Path</th></tr></thead><tbody id="cleanupRows"></tbody></table>
       </div>
     </section>
   </main>
-  <script src="/static/cleanup.js?v=0.9.1" defer></script>
+  <script src="/static/cleanup.js?v=0.11.3" defer></script>
 </body>
 </html>
