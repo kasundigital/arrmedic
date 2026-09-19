@@ -105,7 +105,6 @@ safeOn('logoutButton','click',async()=>{await api('/api/auth/logout',{method:'PO
 safeOn('closeEditModal','click',closeEdit);safeOn('cancelEdit','click',closeEdit);safeOn('editModal','click',(event)=>{if(event.target===$('editModal'))closeEdit();});
 safeOn('editServiceForm','submit',async(event)=>{event.preventDefault();const id=$('editId').value;const payload={name:$('editName').value.trim(),kind:$('editKind').value,url:$('editUrl').value.trim(),api_key:$('editApiKey').value.trim()||null};try{await api(`/api/instances/${id}`,{method:'PUT',body:JSON.stringify(payload)});statusMap.set(Number(id),{state:'online'});await loadInstances();closeEdit();}catch(error){showNotice($('editResult'),error.message);}});
 
-document.addEventListener('click',(event)=>{const go=event.target.closest('[data-go]');if(go){event.preventDefault();routeTo(go.dataset.go);}});
 safeOn('dashboardAddApp','click',openWizard);
 safeOn('dashboardViewProblems','click',()=>routeTo('problems'));
 safeOn('dashboardFixIssue','click',()=>{const metric=$('criticalCount')?.closest('.metric-card');if(metric)metric.click();else routeTo('problems');});
