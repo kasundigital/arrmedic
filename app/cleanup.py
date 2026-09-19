@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
+import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -23,6 +26,7 @@ class CleanupDeleteItem(BaseModel):
 
 
 class CleanupDeleteRequest(BaseModel):
+    report_id: str
     items: list[CleanupDeleteItem]
     delete_files: bool = False
     add_import_exclusion: bool = False
@@ -32,8 +36,9 @@ _REMOVED_PATTERNS = (
     re.compile(r"tmdbid\s+(\d+)", re.I),
     re.compile(r"tvdbid\s+(\d+)", re.I),
 )
-
 _LIBRARY_ENDPOINTS = {"movie", "series"}
+_DRY_RUN_TTL_SECONDS = 30 * 60
+_DRY_RUN_REPORTS: dict[str, dict[str, Any]] = {}
 
 
 def extract_removed_ids(health: list[dict[str, Any]], kind: str) -> set[int]:
@@ -59,6 +64,26 @@ def item_has_media(kind: str, item: dict[str, Any]) -> bool:
     return False
 
 
+def cleanup_status(stale_metadata: bool, has_media: bool) -> tuple[str, str, str]:
+    if stale_metadata and not has_media:
+        return (
+            "safe",
+            "Removed metadata and no media file are reported.",
+            "Safe candidate for app-record cleanup after review.",
+        )
+    if has_media:
+        return (
+            "manual_only",
+            "Media is still reported for this item.",
+            "Do not auto-clean. Review this item manually before removing its app record.",
+        )
+    return (
+        "review",
+        "No media file is reported, but the metadata is not known to be removed.",
+        "Review first. The item may simply be waiting for a download or intentionally monitored.",
+    )
+
+
 def _friendly_request_error(exc: Exception, endpoint: str) -> str:
     if isinstance(exc, httpx.ReadTimeout):
         return f"Timed out while downloading {endpoint} data. Large libraries can take longer than normal."
@@ -78,13 +103,7 @@ async def request_json(payload, method: str, endpoint: str, *, params: dict | No
     headers = {"X-Api-Key": payload.api_key}
     endpoint_name = endpoint.lstrip("/").split("/", 1)[0]
     is_library_request = method.upper() == "GET" and endpoint_name in _LIBRARY_ENDPOINTS
-
-    timeout = httpx.Timeout(
-        connect=10.0,
-        read=120.0 if is_library_request else 30.0,
-        write=30.0,
-        pool=10.0,
-    )
+    timeout = httpx.Timeout(connect=10.0, read=120.0 if is_library_request else 30.0, write=30.0, pool=10.0)
     attempts = 2 if is_library_request else 1
     last_error: Exception | None = None
 
@@ -114,7 +133,6 @@ async def request_json(payload, method: str, endpoint: str, *, params: dict | No
                 except (httpx.RequestError, httpx.HTTPStatusError, ValueError) as exc:
                     last_error = exc
                     break
-
             if isinstance(last_error, RuntimeError) and "HTTP 404" in str(last_error):
                 continue
             break
@@ -123,11 +141,16 @@ async def request_json(payload, method: str, endpoint: str, *, params: dict | No
     raise HTTPException(status_code=400, detail=f"Unable to call {payload.kind.title()} {endpoint}: {detail}")
 
 
+def _with_cleanup_status(row: dict[str, Any]) -> dict[str, Any]:
+    status, reason, recommendation = cleanup_status(bool(row["staleMetadata"]), bool(row["hasMedia"]))
+    return {**row, "cleanupStatus": status, "reason": reason, "recommendation": recommendation}
+
+
 def radarr_row(instance, movie: dict, stale_ids: set[int]) -> dict:
     has_file = item_has_media("radarr", movie)
     movie_file = movie.get("movieFile") if isinstance(movie.get("movieFile"), dict) else {}
     tmdb_id = movie.get("tmdbId")
-    return {
+    return _with_cleanup_status({
         "instanceId": instance["id"],
         "instanceName": instance["name"],
         "kind": "radarr",
@@ -142,14 +165,14 @@ def radarr_row(instance, movie: dict, stale_ids: set[int]) -> dict:
         "mediaPath": movie_file.get("path"),
         "mediaSize": movie_file.get("size"),
         "staleMetadata": isinstance(tmdb_id, int) and tmdb_id in stale_ids,
-    }
+    })
 
 
 def sonarr_row(instance, series: dict, stale_ids: set[int]) -> dict:
     stats = series.get("statistics") if isinstance(series.get("statistics"), dict) else {}
     file_count = int(stats.get("episodeFileCount") or 0)
     tvdb_id = series.get("tvdbId")
-    return {
+    return _with_cleanup_status({
         "instanceId": instance["id"],
         "instanceName": instance["name"],
         "kind": "sonarr",
@@ -163,7 +186,7 @@ def sonarr_row(instance, series: dict, stale_ids: set[int]) -> dict:
         "hasMedia": file_count > 0,
         "mediaCount": file_count,
         "staleMetadata": isinstance(tvdb_id, int) and tvdb_id in stale_ids,
-    }
+    })
 
 
 async def scan_instance(instance) -> dict:
@@ -181,7 +204,8 @@ async def scan_instance(instance) -> dict:
         else [sonarr_row(instance, item, stale_ids) for item in library if isinstance(item, dict)]
     )
     candidates = [row for row in rows if row["staleMetadata"] or not row["hasMedia"]]
-    candidates.sort(key=lambda row: (not row["staleMetadata"], row["hasMedia"], str(row["title"]).lower()))
+    order = {"safe": 0, "review": 1, "manual_only": 2}
+    candidates.sort(key=lambda row: (order.get(row["cleanupStatus"], 9), str(row["title"]).lower()))
     return {
         "instanceId": instance["id"],
         "instanceName": instance["name"],
@@ -192,6 +216,36 @@ async def scan_instance(instance) -> dict:
         "candidateCount": len(candidates),
         "items": candidates,
     }
+
+
+def _purge_expired_reports() -> None:
+    now = time.time()
+    expired = [key for key, report in _DRY_RUN_REPORTS.items() if report["expires_at"] <= now]
+    for key in expired:
+        _DRY_RUN_REPORTS.pop(key, None)
+
+
+def _store_report(items: list[dict[str, Any]]) -> tuple[str, str]:
+    _purge_expired_reports()
+    report_id = uuid.uuid4().hex
+    expires_at = time.time() + _DRY_RUN_TTL_SECONDS
+    _DRY_RUN_REPORTS[report_id] = {
+        "expires_at": expires_at,
+        "allowed": {(int(item["instanceId"]), int(item["itemId"])) for item in items if item.get("itemId") is not None},
+    }
+    expires_iso = datetime.fromtimestamp(expires_at, tz=timezone.utc).isoformat()
+    return report_id, expires_iso
+
+
+def _validate_report(report_id: str, items: list[CleanupDeleteItem]) -> None:
+    _purge_expired_reports()
+    report = _DRY_RUN_REPORTS.get(report_id)
+    if not report:
+        raise HTTPException(status_code=409, detail="Dry-run report is missing or expired. Run Dry Run again before cleanup.")
+    allowed = report["allowed"]
+    invalid = [(item.instance_id, item.item_id) for item in items if (item.instance_id, item.item_id) not in allowed]
+    if invalid:
+        raise HTTPException(status_code=409, detail="Selection changed after the dry run. Run Dry Run again before cleanup.")
 
 
 @router.get("/instances")
@@ -218,12 +272,20 @@ async def cleanup_scan(request: CleanupScanRequest, arrmedic_session: str | None
         result = await scan_instance(instance)
         results.append(result)
         all_items.extend(result["items"])
+
+    report_id, expires_at = _store_report(all_items)
     return {
+        "dryRun": True,
+        "reportId": report_id,
+        "expiresAt": expires_at,
         "instances": results,
         "items": all_items,
         "totalCandidates": len(all_items),
         "staleCount": sum(1 for item in all_items if item["staleMetadata"]),
         "missingMediaCount": sum(1 for item in all_items if not item["hasMedia"]),
+        "safeCount": sum(1 for item in all_items if item["cleanupStatus"] == "safe"),
+        "reviewCount": sum(1 for item in all_items if item["cleanupStatus"] == "review"),
+        "manualOnlyCount": sum(1 for item in all_items if item["cleanupStatus"] == "manual_only"),
     }
 
 
@@ -232,6 +294,7 @@ async def cleanup_remove(request: CleanupDeleteRequest, arrmedic_session: str | 
     require_user(arrmedic_session)
     if not request.items:
         raise HTTPException(status_code=400, detail="Select at least one library item")
+    _validate_report(request.report_id, request.items)
 
     removed: list[dict] = []
     failed: list[dict] = []
@@ -240,13 +303,10 @@ async def cleanup_remove(request: CleanupDeleteRequest, arrmedic_session: str | 
             instance = get_instance(selected.instance_id)
             if instance["kind"] not in {"radarr", "sonarr"}:
                 raise HTTPException(status_code=400, detail="Only Radarr and Sonarr records can be removed here")
-
             payload = instance_payload(instance)
             endpoint = "movie" if instance["kind"] == "radarr" else "series"
 
             if request.delete_files:
-                # Fail closed: re-read the item immediately before deletion. The destructive
-                # action is allowed only when the service itself currently reports no media.
                 current = await request_json(payload, "GET", f"{endpoint}/{selected.item_id}")
                 if not isinstance(current, dict):
                     raise HTTPException(status_code=400, detail="Unable to verify media state before destructive cleanup")
@@ -265,13 +325,7 @@ async def cleanup_remove(request: CleanupDeleteRequest, arrmedic_session: str | 
                     "addImportExclusion": "true" if request.add_import_exclusion else "false",
                 },
             )
-            removed.append(
-                {
-                    "instanceId": selected.instance_id,
-                    "itemId": selected.item_id,
-                    "deleteFiles": request.delete_files,
-                }
-            )
+            removed.append({"instanceId": selected.instance_id, "itemId": selected.item_id, "deleteFiles": request.delete_files})
         except Exception as exc:
             detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
             failed.append({"instanceId": selected.instance_id, "itemId": selected.item_id, "error": detail})
