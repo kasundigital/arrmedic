@@ -6,9 +6,9 @@
   <meta name="color-scheme" content="dark" />
   <title>ArrMedic</title>
   <link rel="icon" href="/static/logo.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/static/styles.css?v=0.11.0" />
-  <link rel="stylesheet" href="/static/diagnostics.css?v=0.11.0" />
-  <link rel="stylesheet" href="/static/issue-center.css?v=0.11.0" />
+  <link rel="stylesheet" href="/static/styles.css?v=0.11.2" />
+  <link rel="stylesheet" href="/static/diagnostics.css?v=0.11.2" />
+  <link rel="stylesheet" href="/static/issue-center.css?v=0.11.2" />
 </head>
 <body>
   <div class="ambient ambient-a"></div><div class="ambient ambient-b"></div>
@@ -63,53 +63,80 @@
       <div class="side-brand"><img src="/static/logo.svg" alt="ArrMedic" /><div><strong>ArrMedic</strong><span>Stack Intelligence</span></div></div>
       <nav id="mainNav" class="nav-list">
         <a class="nav-item active" href="#dashboard" data-route="dashboard"><span class="nav-icon">⌂</span><span>Dashboard</span></a>
-        <a class="nav-item" href="#instances" data-route="instances"><span class="nav-icon">◇</span><span>Instances</span></a>
-        <a class="nav-item" href="#diagnostics" data-route="diagnostics"><span class="nav-icon">✦</span><span>Diagnostics</span></a>
+        <a class="nav-item" href="#apps" data-route="apps"><span class="nav-icon">▦</span><span>Apps</span></a>
+        <a class="nav-item" href="#problems" data-route="problems"><span class="nav-icon">!</span><span>Problems</span><span id="navProblemCount" class="nav-badge hidden">0</span></a>
+        <a class="nav-item" href="#tools" data-route="tools"><span class="nav-icon">⌕</span><span>Tools</span></a>
         <a class="nav-item" href="#settings" data-route="settings"><span class="nav-icon">⚙</span><span>Settings</span></a>
       </nav>
-      <div class="side-footer"><div class="build"><span class="pulse"></span><span>ArrMedic</span><strong id="sidebarVersion">v…</strong></div><button id="logoutButton" class="button ghost full">Sign out</button></div>
+      <div class="side-footer"><div class="sidebar-help"><strong>Need help?</strong><span>Start with Problems. ArrMedic will guide you.</span><button class="button ghost full" data-go="problems">View problems →</button></div><div class="build"><span class="pulse"></span><span>ArrMedic</span><strong id="sidebarVersion">v…</strong></div><button id="logoutButton" class="button ghost full">Sign out</button></div>
     </aside>
 
     <main class="workspace">
       <section id="dashboardView" class="view active-view" data-view="dashboard">
-        <header class="topbar"><div><span class="kicker">COMMAND CENTER</span><h1>Stack overview</h1><p>Live health, service state and troubleshooting signals across your media automation stack.</p></div><div class="top-actions"><span id="apiStatus" class="status-chip"><span class="pulse"></span>Checking API</span><button id="addMoreButton" class="button primary">+ Add service</button></div></header>
-        <div class="metric-grid">
-          <article class="metric-card"><div class="metric-icon">♥</div><div><span>Health score</span><strong id="healthScore">—<small>/100</small></strong><p>Latest saved full scan</p></div></article>
-          <article class="metric-card"><div class="metric-icon">▦</div><div><span>Services</span><strong id="connectedCount">0</strong><p>Configured instances</p></div></article>
-          <article class="metric-card"><div class="metric-icon">✓</div><div><span>Online</span><strong id="onlineCount">0</strong><p>Passing API checks</p></div></article>
-          <article class="metric-card"><div class="metric-icon danger-icon">!</div><div><span>Issues</span><strong id="criticalCount">0</strong><p>Warnings and failures</p></div></article>
+        <header class="topbar friendly-topbar">
+          <div><span class="kicker">ARRMEDIC</span><h1>Dashboard</h1><p>See your apps, problems and next steps in one place.</p></div>
+          <div class="top-actions"><span id="apiStatus" class="status-chip"><span class="pulse"></span>Checking API</span><button id="addMoreButton" class="button primary">+ Add app</button></div>
+        </header>
+
+        <div class="metric-grid simple-metrics">
+          <article class="metric-card"><div class="metric-icon">♥</div><div><span>Overall health</span><strong id="healthScore">—<small>/100</small></strong><p>Your stack health</p></div></article>
+          <article class="metric-card"><div class="metric-icon">▦</div><div><span>Connected apps</span><strong id="connectedCount">0</strong><p>Apps configured</p></div></article>
+          <article class="metric-card problem-metric"><div class="metric-icon danger-icon">!</div><div><span>Problems to fix</span><strong id="criticalCount">0</strong><p>Needs your attention</p></div></article>
+          <article class="metric-card"><div class="metric-icon">◷</div><div><span>Last scan</span><strong id="lastScanTime" class="time-value">Never</strong><p>Latest saved check</p></div></article>
+          <span id="onlineCount" class="hidden">0</span>
         </div>
-        <div class="dashboard-grid">
-          <article class="surface services-panel"><div class="section-head"><div><span class="kicker">LIVE SERVICES</span><h2>Current status</h2></div><button id="refreshAllButton" class="button secondary small">Run & save scan</button></div><div id="dashboardServiceList" class="service-table"></div></article>
-          <article class="surface activity-panel"><div class="section-head"><div><span class="kicker">QUICK ACTIONS</span><h2>Tools</h2></div></div><div class="quick-actions"><button class="quick-action" data-go="instances"><span>◇</span><div><strong>Manage instances</strong><small>Add, edit and test services</small></div></button><button class="quick-action" data-go="diagnostics"><span>✦</span><div><strong>Guided diagnostics</strong><small>Find issues and recommended fixes</small></div></button><button class="quick-action" data-go="settings"><span>⚙</span><div><strong>Review settings</strong><small>Runtime and persistence</small></div></button></div></article>
-        </div>
-        <div class="doctor-grid">
-          <a class="doctor-card doctor-button" href="/static/path-doctor.html"><span>FOLDERS</span><strong>Folders & Mounts</strong><p>See host paths, Docker mounts and app paths in one simple view.</p><em>OPEN PATH DOCTOR</em></a>
-          <a class="doctor-card doctor-button" href="/static/hardlink-doctor.html"><span>LINKS</span><strong>Hardlink Check</strong><p>See whether downloads and media can hardlink without extra copies.</p><em>OPEN HARDLINK DOCTOR</em></a>
-          <a class="doctor-card doctor-button" href="/static/permission-doctor.html"><span>ACCESS</span><strong>Permissions</strong><p>Understand missing mounts versus read/write permission problems.</p><em>OPEN PERMISSION DOCTOR</em></a>
-          <a class="doctor-card doctor-button" href="/static/queue-doctor.html"><span>IMPORTS</span><strong>Import Problems</strong><p>Review blocked queue items and common causes in plain language.</p><em>OPEN QUEUE DOCTOR</em></a>
-        </div>
+
+        <section id="dashboardProblemCard" class="attention-card hidden">
+          <div class="attention-icon">!</div>
+          <div class="attention-main">
+            <span class="attention-label">NEEDS ATTENTION</span>
+            <h2 id="dashboardProblemTitle">A problem needs your attention</h2>
+            <p id="dashboardProblemMessage">Run a scan to see what needs fixing.</p>
+            <div class="attention-actions"><button id="dashboardFixIssue" class="button primary">Fix this issue →</button><button id="dashboardViewProblems" class="button secondary">View all problems</button></div>
+          </div>
+          <div class="attention-why"><strong>Why this matters</strong><p id="dashboardProblemWhy">ArrMedic highlights the problem that is most likely to stop your automation from working normally.</p></div>
+        </section>
+
+        <section id="dashboardHealthyCard" class="healthy-card hidden">
+          <div class="healthy-icon">✓</div><div><strong>No problems need attention</strong><p>Your latest saved scan looks healthy.</p></div><button id="dashboardRunScan" class="button secondary small">Run check</button>
+        </section>
+
+        <article class="surface apps-panel">
+          <div class="section-head"><div><span class="kicker">YOUR APPS</span><h2>Connected apps</h2><p class="section-subtitle">See whether each app is online and open the action you need.</p></div><button id="dashboardAddApp" class="button secondary small">+ Add another app</button></div>
+          <div id="dashboardServiceList" class="service-table dashboard-app-list"></div>
+        </article>
+
+        <section class="dashboard-shortcuts">
+          <button class="shortcut-card" data-go="problems"><span>!</span><div><strong>Problems</strong><small>See what needs fixing and follow guided steps.</small></div><b>Open →</b></button>
+          <button class="shortcut-card" data-go="tools"><span>⌕</span><div><strong>Tools</strong><small>Run folder, permission, hardlink and cleanup checks.</small></div><b>Open →</b></button>
+        </section>
       </section>
 
       <section id="instancesView" class="view hidden" data-view="instances">
-        <header class="topbar"><div><span class="kicker">INSTANCES</span><h1>Service management</h1><p>Test, edit and remove every saved connection. Multiple instances of the same app are supported.</p></div><button id="instancesAddButton" class="button primary">+ Add service</button></header>
-        <article class="surface"><div class="section-head"><div><span class="kicker">CONFIGURED</span><h2>All services</h2></div></div><div id="instanceList" class="service-table"></div></article>
+        <header class="topbar"><div><span class="kicker">APPS</span><h1>Your apps</h1><p>Add, test and manage the media apps connected to ArrMedic.</p></div><button id="instancesAddButton" class="button primary">+ Add app</button></header>
+        <article class="surface"><div class="section-head"><div><span class="kicker">CONNECTED</span><h2>All apps</h2></div></div><div id="instanceList" class="service-table"></div></article>
       </section>
 
       <section id="diagnosticsView" class="view hidden" data-view="diagnostics">
-        <header class="topbar"><div><span class="kicker">DIAGNOSTICS</span><h1>Guided troubleshooting</h1><p>Scan the stack, correlate recent failures and follow prioritized fixes rather than reading every log manually.</p></div><div class="top-actions"><button id="exportDiagnosticsButton" class="button secondary" disabled>Export JSON</button><button id="runDiagnosticsButton" class="button primary">Run full scan</button></div></header>
+        <header class="topbar"><div><span class="kicker">PROBLEMS</span><h1>Problems & fixes</h1><p>Start with the important problems first. ArrMedic explains what is wrong and what to do next.</p></div><div class="top-actions"><button id="exportDiagnosticsButton" class="button secondary" disabled>Export details</button><button id="runDiagnosticsButton" class="button primary">Check again</button></div></header>
         <div id="diagnosticSummary" class="diagnostic-summary"></div>
-        <div class="doctor-strip">
-          <div><span class="doctor-dot path"></span><strong>Folders & Mounts</strong><small>Dedicated Path Doctor screen</small></div>
-          <div><span class="doctor-dot link"></span><strong>Hardlink Check</strong><small>Dedicated Hardlink Doctor screen</small></div>
-          <div><span class="doctor-dot perm"></span><strong>Permissions</strong><small>Dedicated Permission Doctor screen</small></div>
-          <div><span class="doctor-dot queue"></span><strong>Import Problems</strong><small>Dedicated Queue Doctor screen</small></div>
-        </div>
         <div class="diagnostic-meta-grid">
           <article class="surface scan-history-card"><div class="section-head"><div><span class="kicker">SCAN HISTORY</span><h2>Recent health trend</h2></div><span id="scanHistoryCount" class="counter">0</span></div><div id="scanHistory" class="scan-history"><div class="empty-mini">No saved scans yet.</div></div></article>
           <article class="surface fix-summary-card"><div class="section-head"><div><span class="kicker">GUIDED FIXES</span><h2>Action plan</h2></div><span id="fixCount" class="counter">0</span></div><div id="fixSummary" class="fix-summary"><div class="empty-mini">Run a scan to generate prioritized fixes.</div></div></article>
         </div>
         <div id="diagnosticResults" class="diagnostic-results"><div class="diagnostic-empty surface"><span>✦</span><strong>Ready to scan</strong><p>Add services if you want, then run a full scan. ArrMedic can still be explored with no services configured.</p></div></div>
+      </section>
+
+      <section id="toolsView" class="view hidden" data-view="tools">
+        <header class="topbar"><div><span class="kicker">TOOLS</span><h1>Helpful tools</h1><p>Use a tool when you want to check one specific part of your setup.</p></div></header>
+        <div class="tool-grid-simple">
+          <a class="tool-card-simple" href="/static/download-client-doctor.html"><span class="tool-symbol">▣</span><div><strong>Download Folder Doctor</strong><p>Find why Radarr or Sonarr cannot see completed downloads.</p></div><em>Run check →</em></a>
+          <a class="tool-card-simple" href="/static/permission-doctor.html"><span class="tool-symbol">◈</span><div><strong>Permissions Check</strong><p>Find missing mounts and file access problems.</p></div><em>Run check →</em></a>
+          <a class="tool-card-simple" href="/static/hardlink-doctor.html"><span class="tool-symbol">↗</span><div><strong>Hardlink Check</strong><p>See whether your download and media layout can use hardlinks.</p></div><em>Run check →</em></a>
+          <a class="tool-card-simple" href="/static/queue-doctor.html"><span class="tool-symbol">≡</span><div><strong>Import Problems</strong><p>Review blocked imports and queue errors in plain language.</p></div><em>Open →</em></a>
+          <a class="tool-card-simple" href="/static/path-doctor.html"><span class="tool-symbol">⌁</span><div><strong>Folders & Mounts</strong><p>Compare host folders, Docker paths and app paths.</p></div><em>Open →</em></a>
+          <a class="tool-card-simple" href="/static/cleanup.html"><span class="tool-symbol">⌫</span><div><strong>Cleanup Scanner</strong><p>Find stale metadata and missing-media records.</p></div><em>Run scan →</em></a>
+        </div>
       </section>
 
       <section id="settingsView" class="view hidden" data-view="settings">
@@ -121,8 +148,8 @@
 
   <div id="editModal" class="modal hidden"><div class="modal-card glass"><div class="section-head"><div><span class="kicker">EDIT SERVICE</span><h2>Update connection</h2></div><button id="closeEditModal" class="close-button">×</button></div><form id="editServiceForm" class="form-stack"><input id="editId" type="hidden" /><div class="two-col"><label><span>Service name</span><input id="editName" required /></label><label><span>Service</span><select id="editKind"><option value="sonarr">Sonarr</option><option value="radarr">Radarr</option><option value="prowlarr">Prowlarr</option><option value="lidarr">Lidarr</option><option value="readarr">Readarr</option><option value="whisparr">Whisparr</option></select></label></div><label><span>URL</span><input id="editUrl" type="url" required /></label><label><span>New API key <small>(blank keeps current)</small></span><input id="editApiKey" type="password" autocomplete="off" /></label><div id="editResult" class="notice hidden"></div><div class="action-row"><button type="button" id="cancelEdit" class="button secondary">Cancel</button><button type="submit" class="button primary">Save & test</button></div></form></div></div>
 
-  <script src="/static/app.js?v=0.11.0" defer></script>
-  <script src="/static/issue-center.js?v=0.11.0" defer></script>
+  <script src="/static/app.js?v=0.11.2" defer></script>
+  <script src="/static/issue-center.js?v=0.11.2" defer></script>
   <script>
     window.addEventListener('DOMContentLoaded', async () => {
       try {
